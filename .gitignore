@@ -1,0 +1,56 @@
+# Tokens y credenciales
+.token
+*.token
+
+# Archivos de cache y sesion
+.upload_progress.json
+.dashboard_history.json
+.oficina_map.json
+.sharepoint_map.json
+
+# Directorios de datos (no incluir en repo)
+Backup_Evidencias/
+Cartera_de_Dificil_cobro_de_junio/
+Casos P_V cartera junio/
+Pruebas Juidicial dic/
+Pruebas SHD Sep-25/
+Siproj/
+bases/
+cargue/
+conexion/
+consultas vur sae/
+judicial/
+pdfs/
+proceso2/
+proceso_mayor_cuantia/
+proceso_validacion/
+pruebasvur/
+resultados/
+validacion_octubre/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Claude Code
+.claude/
+
+# Logs
+*.log
+/tmp/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
