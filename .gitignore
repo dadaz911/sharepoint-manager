@@ -54,3 +54,7 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# PID files
+*.pid
+

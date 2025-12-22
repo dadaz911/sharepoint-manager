@@ -98,3 +98,70 @@ Editar las URLs de SharePoint en los archivos:
 ## Licencia
 
 MIT
+
+## Servicio Automatizado (Wayland - Recomendado)
+
+El servicio Wayland es más seguro que X11 y permite ejecución headless con acceso VNC cuando se necesite intervención manual.
+
+### Requisitos Wayland
+
+```bash
+# Instalar compositor Wayland y VNC
+sudo apt install cage wayvnc
+
+# Crear entorno virtual con uv
+uv venv && uv pip install websocket-client requests
+```
+
+### Archivos del Servicio
+
+| Archivo | Descripción |
+|---------|-------------|
+| `start_sharepoint_wayland.sh` | Script de control (start/stop/status/restart) |
+| `~/.config/systemd/user/sharepoint-wayland.service` | Servicio systemd |
+
+### Comandos del Servicio
+
+```bash
+# Iniciar manualmente
+./start_sharepoint_wayland.sh start
+
+# Ver estado
+./start_sharepoint_wayland.sh status
+
+# Detener
+./start_sharepoint_wayland.sh stop
+
+# Refrescar token manualmente
+./start_sharepoint_wayland.sh refresh
+```
+
+### Systemd (Auto-inicio)
+
+```bash
+# Habilitar servicio
+systemctl --user enable sharepoint-wayland.service
+
+# Permitir inicio sin login (requiere sudo)
+sudo loginctl enable-linger $USER
+
+# Ver estado
+systemctl --user status sharepoint-wayland
+
+# Ver logs
+journalctl --user -u sharepoint-wayland -f
+```
+
+### Acceso VNC (Login Manual)
+
+Cuando la sesión de Microsoft expire (~90 días), conectar via VNC:
+
+```bash
+vncviewer <servidor>:5900
+```
+
+### Seguridad Wayland vs X11
+
+- **Wayland**: Mejor aislamiento entre aplicaciones (anti-keylogger, no screenshots entre apps)
+- **cage**: Compositor minimalista que ejecuta Chrome en modo kiosk aislado
+- **Token**: Almacenado localmente, nunca expuesto en red
