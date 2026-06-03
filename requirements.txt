@@ -1,0 +1,7 @@
+# Dependencias del token daemon (camino CDP via WebSocket).
+requests>=2.31
+websocket-client>=1.7
+
+# Opcional: fallback con Selenium (refresh_token_selenium). Descomenta si lo usas.
+# selenium>=4.18
+# webdriver-manager>=4.0

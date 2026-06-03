@@ -28,13 +28,15 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Tuple
 
-# Configuración
+# Configuración. Los valores se leen del entorno (config.env, inyectado por la unit
+# systemd vía EnvironmentFile) con defaults idénticos al comportamiento histórico,
+# de modo que correrlo a mano sigue funcionando sin variables seteadas.
 CONFIG = {
-    "token_file": "/home/daniel/Desktop/Cargue a Onedrive/.token",
-    "cdp_port": 9222,
-    "check_interval": 300,  # Verificar cada 5 minutos
-    "refresh_threshold": 15,  # Refrescar cuando queden menos de 15 minutos
-    "onedrive_url": "https://shdgov-my.sharepoint.com",
+    "token_file": os.environ.get("TOKEN_FILE", "/home/daniel/Desktop/Cargue a Onedrive/.token"),
+    "cdp_port": int(os.environ.get("CDP_PORT", "9222")),
+    "check_interval": int(os.environ.get("CHECK_INTERVAL", "300")),  # Verificar cada 5 min
+    "refresh_threshold": int(os.environ.get("REFRESH_THRESHOLD", "15")),  # Refrescar si <15 min
+    "onedrive_url": os.environ.get("ONEDRIVE_URL", "https://shdgov-my.sharepoint.com"),
 }
 
 class TokenDaemon:
@@ -157,6 +159,7 @@ class TokenDaemon:
 
         if token:
             self.token_file.write_text(token + "\n")
+            os.chmod(self.token_file, 0o600)  # bearer token: no world-readable
             print(f"Token refrescado exitosamente")
             return True
 
@@ -200,6 +203,7 @@ class TokenDaemon:
 
             if token:
                 self.token_file.write_text(token + "\n")
+                os.chmod(self.token_file, 0o600)  # bearer token: no world-readable
                 print("Token refrescado via Selenium")
                 return True
 

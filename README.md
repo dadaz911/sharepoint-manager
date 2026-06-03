@@ -2,6 +2,21 @@
 
 Dashboard web para gestionar archivos en SharePoint/OneDrive con soporte para subidas masivas, explorador de archivos y refresh automatico de token.
 
+## Servicio estable (systemd)
+
+El refresh de token corre como **servicio de usuario en gold**, autogestionado con watchdog y
+health-check (mismo patrón operativo que el repo `vpn`). Modelo **keep-alive**: un Chrome real
+(bajo Xvfb, invisible) se mantiene vivo y se loguea vía VNC, porque M365 no re-autentica en
+silencio un Chrome reiniciado.
+
+```bash
+bash deploy.sh            # instala/actualiza units + arranca
+bin/spm.sh status         # estado de units, Chrome y token
+bin/spm.sh login          # login M365 vía VNC (tras reboot o ~90 días)
+```
+
+Documentación: **`CLAUDE.md`** (arquitectura) y **`MANUAL.md`** (runbook operativo).
+
 ## Caracteristicas
 
 - **Dashboard Web**: Interfaz moderna con graficos en tiempo real, monitoreo de progreso y logs
@@ -25,43 +40,36 @@ pip install flask flask-socketio gevent gevent-websocket requests websocket-clie
 ```
 sharepoint-manager/
 ├── dashboard.py              # Servidor Flask principal
-├── templates/
-│   └── dashboard.html        # Frontend del dashboard
-├── auto_token_refresh.py     # Daemon de refresh de token
-├── subir_paralelo.py         # Script de subida con hilos
-├── subir_onedrive.py         # Script de subida simple
-├── subir_onedrive_auto.py    # Subida con auto-refresh
+├── templates/dashboard.html  # Frontend del dashboard
+├── token_daemon.py           # Daemon de refresh de token (CDP)
+├── subir_paralelo.py         # Subida con hilos
+├── subir_onedrive*.py        # Subidas
 ├── explorador_sharepoint.py  # Explorador CLI
-├── explorador_oficina.py     # Explorador para sitio especifico
-├── start_chrome_debug.sh     # Iniciar Chrome con CDP
-├── token_daemon.py           # Servicio de token
-└── .gitignore
+├── config.env                # Configuración central (paths, puerto, URL)
+├── bin/                      # Control: spm.sh, chrome-headless, watchdog, health-check
+├── systemd/                  # Units: chrome, daemon, watchdog, healthcheck
+├── deploy.sh                 # Despliegue local (symlink units + enable)
+└── requirements.txt
 ```
 
 ## Uso
 
-### 1. Iniciar Chrome con Debug
+### Token automático (servicio)
+
+El token se refresca solo vía el servicio (`bash deploy.sh`). Si la sesión M365 expiró
+(~cada 90 días), reautentica con:
 
 ```bash
-./start_chrome_debug.sh
+bin/spm.sh login
 ```
 
-### 2. Obtener Token
+El token queda en `/home/daniel/Desktop/Cargue a Onedrive/.token`. Ver `MANUAL.md`.
 
-Navegar a SharePoint en Chrome y copiar el token de las DevTools (Network > Headers > Authorization)
-
-Guardar en archivo `.token`:
-```bash
-echo "eyJhbGc..." > .token
-```
-
-### 3. Iniciar Dashboard
+### Dashboard
 
 ```bash
-python3 dashboard.py
+python3 dashboard.py    # http://localhost:5000
 ```
-
-Acceder a: http://localhost:5000
 
 ### 4. Subida de Archivos
 
@@ -91,9 +99,10 @@ Editar las URLs de SharePoint en los archivos:
 
 ## Notas de Seguridad
 
-- **NO** subir el archivo `.token` al repositorio
-- El token expira cada ~60 minutos
-- El refresh automatico requiere Chrome con sesion activa
+- **NO** subir el archivo `.token` al repositorio (ya en `.gitignore`)
+- Ruta canónica del token: `/home/daniel/Desktop/Cargue a Onedrive/.token`
+- El token expira cada ~60 min (el daemon lo refresca); la sesión M365 se renueva con login vía VNC
+- Los puertos CDP (Chrome) y VNC (login) escuchan **solo en 127.0.0.1**; el token nunca sale a la red
 
 ## Licencia
 

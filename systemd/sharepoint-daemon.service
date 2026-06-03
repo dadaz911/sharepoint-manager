@@ -1,0 +1,19 @@
+[Unit]
+Description=SharePoint Manager — daemon de refresco de token
+Requires=sharepoint-chrome.service
+After=sharepoint-chrome.service
+
+[Service]
+Type=simple
+# El token es un bearer secret → archivos del daemon no legibles por grupo/otros.
+UMask=0077
+WorkingDirectory=/home/daniel/claudecode/sharepoint-manager
+EnvironmentFile=/home/daniel/claudecode/sharepoint-manager/config.env
+# No arrancar el daemon hasta que el CDP de Chrome responda.
+ExecStartPre=/home/daniel/claudecode/sharepoint-manager/bin/wait-cdp.sh
+ExecStart=/home/daniel/claudecode/sharepoint-manager/.venv/bin/python /home/daniel/claudecode/sharepoint-manager/token_daemon.py
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target

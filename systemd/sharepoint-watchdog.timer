@@ -1,0 +1,10 @@
+[Unit]
+Description=Revisa SharePoint Manager cada 5 minutos y lo revive si cae
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

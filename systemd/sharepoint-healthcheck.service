@@ -1,0 +1,9 @@
+[Unit]
+Description=SharePoint Manager — reporte de salud (ok/warn/crit)
+
+[Service]
+Type=oneshot
+EnvironmentFile=/home/daniel/claudecode/sharepoint-manager/config.env
+ExecStart=/home/daniel/claudecode/sharepoint-manager/bin/health-check.sh
+Environment=DISPLAY=:0
+Environment=WAYLAND_DISPLAY=wayland-0

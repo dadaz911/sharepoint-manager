@@ -45,6 +45,9 @@ venv/
 *.log
 /tmp/
 
+# PID files (runtime, no versionar)
+*.pid
+
 # IDE
 .vscode/
 .idea/
