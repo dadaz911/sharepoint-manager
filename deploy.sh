@@ -1,43 +1,37 @@
 #!/bin/bash
-# deploy.sh — despliegue LOCAL (gold) de sharepoint-manager como servicio de usuario.
+# deploy.sh — despliegue GOLD del lado OAuth de sharepoint-manager.
 #
-# A diferencia del deploy del repo vpn (que empuja a una Pi remota), aquí "desplegar"
-# es: symlinkear las units a ~/.config/systemd/user, recargar, y habilitar+arrancar.
-# Idempotente: se puede correr varias veces.
+# Arquitectura (browser-less):
+#   - Pi (raspberrypi3): token_refresher.py (sharepoint-refresher.service) refresca el token
+#     OAuth cada ~50 min. Ver pi/ y MANUAL.md.
+#   - gold (este host): notificador de salud — avisa SOLO si el token deja de refrescarse.
+#   - carbon / cualquier host de carga: jala el token del Pi y corre los uploaders.
+#
+# Este script instala la pieza de gold y RETIRA el stack de navegador obsoleto (cutover a OAuth).
 set -euo pipefail
-
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UNIT_DIR="$HOME/.config/systemd/user"
 mkdir -p "$UNIT_DIR"
 
-echo "→ Removiendo units obsoletas que este servicio reemplaza..."
-for old in sharepoint-token.service sharepoint-wayland.service; do
-  if systemctl --user list-unit-files "$old" >/dev/null 2>&1; then
-    systemctl --user disable --now "$old" 2>/dev/null || true
-  fi
-  rm -f "$UNIT_DIR/$old" && echo "  - $old"
+echo "→ Retirando stack de navegador obsoleto (cutover a OAuth)..."
+for old in sharepoint-xvfb.service sharepoint-chrome.service sharepoint-daemon.service \
+           sharepoint-watchdog.service sharepoint-watchdog.timer \
+           sharepoint-healthcheck.service sharepoint-healthcheck.timer \
+           sharepoint-token.service sharepoint-wayland.service; do
+  systemctl --user disable --now "$old" 2>/dev/null || true
+  rm -f "$UNIT_DIR/$old"
 done
 
-echo "→ Symlinkeando units del repo..."
-for unit in "$REPO_DIR"/systemd/*.service "$REPO_DIR"/systemd/*.timer; do
+echo "→ Instalando notificador de salud OAuth..."
+chmod +x "$REPO_DIR"/bin/*.sh 2>/dev/null || true
+for unit in "$REPO_DIR"/systemd/sharepoint-oauth-health.service "$REPO_DIR"/systemd/sharepoint-oauth-health.timer; do
   ln -sf "$unit" "$UNIT_DIR/$(basename "$unit")"
-  echo "  + $(basename "$unit")"
 done
-
-echo "→ Asegurando scripts ejecutables..."
-chmod +x "$REPO_DIR"/bin/*.sh "$REPO_DIR"/deploy.sh 2>/dev/null || true
-
-echo "→ daemon-reload..."
 systemctl --user daemon-reload
-
-echo "→ Habilitando + arrancando servicio y timers..."
-systemctl --user enable --now sharepoint-xvfb.service sharepoint-chrome.service sharepoint-daemon.service
-systemctl --user enable --now sharepoint-watchdog.timer
-systemctl --user enable --now sharepoint-healthcheck.timer
+systemctl --user enable --now sharepoint-oauth-health.timer
 
 echo ""
-systemctl --user --no-pager status sharepoint-daemon.service || true
-echo ""
-echo "✅ Desplegado. Verifica:  bin/spm.sh status"
-echo "   Logs en vivo:          journalctl --user -u sharepoint-daemon -f"
-echo "   ¿Sesión M365 vencida?  bin/spm.sh login"
+echo "✅ gold listo. El refresher OAuth corre en la Pi; el cargue en carbon."
+echo "   Salud:     systemctl --user list-timers sharepoint-oauth-health.timer"
+echo "   Re-login:  ssh ${PI_HOST:-raspberrypi3} 'python3 ~/sharepoint-token/token_refresher.py login'"
+echo "   Ver MANUAL.md para el despliegue del refresher en la Pi y los cargues en carbon."

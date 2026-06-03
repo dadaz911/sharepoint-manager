@@ -2,53 +2,50 @@
 
 Dashboard web para gestionar archivos en SharePoint/OneDrive con soporte para subidas masivas, explorador de archivos y refresh automatico de token.
 
-## Servicio estable (systemd)
+## Token automático (OAuth, sin navegador)
 
-El refresh de token corre como **servicio de usuario en gold**, autogestionado con watchdog y
-health-check (mismo patrón operativo que el repo `vpn`). Modelo **keep-alive**: un Chrome real
-(bajo Xvfb, invisible) se mantiene vivo y se loguea vía VNC, porque M365 no re-autentica en
-silencio un Chrome reiniciado.
+El token de SharePoint/M365 se renueva por **OAuth2 refresh-token, sin navegador**. El motor
+(`token_refresher.py`) corre en la **Pi** (siempre encendida) y refresca el token cada ~50 min;
+**gold** solo vigila y avisa si deja de refrescarse; los cargues corren donde estén los datos.
 
 ```bash
-bash deploy.sh            # instala/actualiza units + arranca
-bin/spm.sh status         # estado de units, Chrome y token
-bin/spm.sh login          # login M365 vía VNC (tras reboot o ~90 días)
+ssh raspberrypi3 'python3 ~/sharepoint-token/token_refresher.py login'   # device-code (1 vez / ~90 días)
+bash deploy.sh                                                           # gold: notificador de salud
 ```
 
-Documentación: **`CLAUDE.md`** (arquitectura) y **`MANUAL.md`** (runbook operativo).
+Documentación: **`CLAUDE.md`** (arquitectura) y **`MANUAL.md`** (runbook + cargues/consolidación).
 
 ## Caracteristicas
 
 - **Dashboard Web**: Interfaz moderna con graficos en tiempo real, monitoreo de progreso y logs
 - **Subida Masiva**: Soporte para subir miles de archivos en paralelo con multiples hilos
 - **Explorador SharePoint**: Navegar, buscar y descargar archivos de sitios SharePoint
-- **Token Auto-Refresh**: Renovacion automatica de tokens usando Chrome DevTools Protocol
+- **Token Auto-Refresh**: Renovación automática por OAuth2 refresh-token (sin navegador), en la Pi
 - **Descarga Paralela**: Descargas de carpetas usando ThreadPoolExecutor
 
 ## Requisitos
 
 - Python 3.8+
-- Google Chrome (para refresh de token)
 - Dependencias Python:
 
 ```bash
-pip install flask flask-socketio gevent gevent-websocket requests websocket-client
+pip install -r requirements.txt   # requests (refresh OAuth + uploaders)
+# dashboard (opcional): pip install flask flask-socketio gevent gevent-websocket
 ```
 
 ## Estructura del Proyecto
 
 ```
 sharepoint-manager/
-├── dashboard.py              # Servidor Flask principal
-├── templates/dashboard.html  # Frontend del dashboard
-├── token_daemon.py           # Daemon de refresh de token (CDP)
-├── subir_paralelo.py         # Subida con hilos
-├── subir_onedrive*.py        # Subidas
-├── explorador_sharepoint.py  # Explorador CLI
-├── config.env                # Configuración central (paths, puerto, URL)
-├── bin/                      # Control: spm.sh, chrome-headless, watchdog, health-check
-├── systemd/                  # Units: chrome, daemon, watchdog, healthcheck
-├── deploy.sh                 # Despliegue local (symlink units + enable)
+├── token_refresher.py        # Motor OAuth (refresh token, sin navegador) — corre en la Pi
+├── pi/                       # Config + unit del refresher en la Pi
+├── bin/oauth-health.sh       # gold: avisa solo si el token deja de refrescarse
+├── bin/pull-token.sh         # jala el token del Pi (hosts de carga)
+├── subir_masivo.py           # Uploader masivo robusto (Retry-After, resume, whitelist)
+├── consolidar_masivo.py      # Consolida carpetas en SharePoint (MoveCopyUtil server-side)
+├── subir_*.py, explorador_*.py, dashboard.py   # herramientas previas
+├── systemd/                  # units OAuth (sharepoint-oauth-health.*)
+├── deploy.sh                 # despliegue gold (notificador + cutover)
 └── requirements.txt
 ```
 
@@ -56,14 +53,16 @@ sharepoint-manager/
 
 ### Token automático (servicio)
 
-El token se refresca solo vía el servicio (`bash deploy.sh`). Si la sesión M365 expiró
-(~cada 90 días), reautentica con:
+El token se refresca solo: el refresher OAuth corre en la **Pi** y renueva el token cada ~50 min
+sin navegador. `gold` solo vigila (`bash deploy.sh` instala el notificador). Si el *refresh token*
+caduca (~cada 90 días), reautentica una vez con device-code:
 
 ```bash
-bin/spm.sh login
+ssh raspberrypi3 'python3 ~/sharepoint-token/token_refresher.py login'
 ```
 
-El token queda en `/home/daniel/Desktop/Cargue a Onedrive/.token`. Ver `MANUAL.md`.
+Los hosts de carga jalan el token del Pi (`bin/pull-token.sh` / `rsync raspberrypi3:~/.cache/spm/.token`).
+Ver `MANUAL.md`.
 
 ### Dashboard
 
@@ -99,10 +98,11 @@ Editar las URLs de SharePoint en los archivos:
 
 ## Notas de Seguridad
 
-- **NO** subir el archivo `.token` al repositorio (ya en `.gitignore`)
-- Ruta canónica del token: `/home/daniel/Desktop/Cargue a Onedrive/.token`
-- El token expira cada ~60 min (el daemon lo refresca); la sesión M365 se renueva con login vía VNC
-- Los puertos CDP (Chrome) y VNC (login) escuchan **solo en 127.0.0.1**; el token nunca sale a la red
+- **NO** subir `.token` ni el *refresh token* al repositorio (ya en `.gitignore`)
+- El token de acceso expira cada ~60 min; el refresher OAuth en la Pi lo renueva automáticamente
+- Sin navegador, sin CDP, sin VNC: el flujo es OAuth2 refresh-token puro (solo HTTP a `login.microsoftonline.com`)
+- El *refresh token* se guarda con permisos `0600`; el único paso interactivo es el device-code (~90 días)
+- Entre hosts, el token viaja por la malla Tailscale vía `rsync` (sin exponer puertos a la red)
 
 ## Licencia
 
