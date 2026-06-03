@@ -24,6 +24,43 @@ import os, sys, time, json, base64, subprocess, datetime, urllib.parse
 from pathlib import Path
 import requests
 
+
+def _load_config_env():
+    """Carga un config.env adyacente al script si existe, SIN pisar el entorno real.
+
+    Así el CLI manual (p. ej. `status`) resuelve las MISMAS rutas que usa el
+    servicio systemd (que inyecta la config vía EnvironmentFile= antes de
+    arrancar Python). Bajo systemd las claves ya están en os.environ -> no-op.
+    Orden: $SPM_CONFIG, luego ./config.env, luego ./pi/config.env (junto al script).
+    """
+    here = Path(__file__).resolve().parent
+    candidates = []
+    if os.environ.get("SPM_CONFIG"):
+        candidates.append(Path(os.environ["SPM_CONFIG"]))
+    candidates += [here / "config.env", here / "pi" / "config.env"]
+    for cfg in candidates:
+        if not cfg.is_file():
+            continue
+        for raw in cfg.read_text().splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[len("export "):]
+            if "=" not in line:
+                continue
+            key, val = line.split("=", 1)
+            key = key.strip()
+            val = val.strip().split(" #", 1)[0].strip()  # quita comentario en línea
+            if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
+                val = val[1:-1]
+            if key and key not in os.environ:      # el entorno real siempre gana
+                os.environ[key] = val
+        break  # primer config.env encontrado gana
+
+
+_load_config_env()
+
 TENANT   = os.environ.get("TENANT", "cd422ec3-3717-412e-ba56-3bdab9a2f7ef")
 CLIENT   = os.environ.get("CLIENT_ID", "d3590ed6-52b3-4102-aeff-aad2292ab01c")  # MS Office (público)
 SCOPE    = os.environ.get("SCOPE", "https://shdgov-my.sharepoint.com/.default offline_access")
