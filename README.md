@@ -2,66 +2,73 @@
 
 Dashboard web para gestionar archivos en SharePoint/OneDrive con soporte para subidas masivas, explorador de archivos y refresh automatico de token.
 
+## Token automático (OAuth, sin navegador)
+
+El token de SharePoint/M365 se renueva por **OAuth2 refresh-token, sin navegador**. El motor
+(`token_refresher.py`) corre en la **Pi** (siempre encendida) y refresca el token cada ~50 min;
+**gold** solo vigila y avisa si deja de refrescarse; los cargues corren donde estén los datos.
+
+```bash
+ssh raspberrypi3 'python3 ~/sharepoint-token/token_refresher.py login'   # device-code (1 vez / ~90 días)
+bash deploy.sh                                                           # gold: notificador de salud
+```
+
+Documentación: **`CLAUDE.md`** (arquitectura) y **`MANUAL.md`** (runbook + cargues/consolidación).
+
 ## Caracteristicas
 
 - **Dashboard Web**: Interfaz moderna con graficos en tiempo real, monitoreo de progreso y logs
 - **Subida Masiva**: Soporte para subir miles de archivos en paralelo con multiples hilos
 - **Explorador SharePoint**: Navegar, buscar y descargar archivos de sitios SharePoint
-- **Token Auto-Refresh**: Renovacion automatica de tokens usando Chrome DevTools Protocol
+- **Token Auto-Refresh**: Renovación automática por OAuth2 refresh-token (sin navegador), en la Pi
 - **Descarga Paralela**: Descargas de carpetas usando ThreadPoolExecutor
 
 ## Requisitos
 
 - Python 3.8+
-- Google Chrome (para refresh de token)
 - Dependencias Python:
 
 ```bash
-pip install flask flask-socketio gevent gevent-websocket requests websocket-client
+pip install -r requirements.txt   # requests (refresh OAuth + uploaders)
+# dashboard (opcional): pip install flask flask-socketio gevent gevent-websocket
 ```
 
 ## Estructura del Proyecto
 
 ```
 sharepoint-manager/
-├── dashboard.py              # Servidor Flask principal
-├── templates/
-│   └── dashboard.html        # Frontend del dashboard
-├── auto_token_refresh.py     # Daemon de refresh de token
-├── subir_paralelo.py         # Script de subida con hilos
-├── subir_onedrive.py         # Script de subida simple
-├── subir_onedrive_auto.py    # Subida con auto-refresh
-├── explorador_sharepoint.py  # Explorador CLI
-├── explorador_oficina.py     # Explorador para sitio especifico
-├── start_chrome_debug.sh     # Iniciar Chrome con CDP
-├── token_daemon.py           # Servicio de token
-└── .gitignore
+├── token_refresher.py        # Motor OAuth (refresh token, sin navegador) — corre en la Pi
+├── pi/                       # Config + unit del refresher en la Pi
+├── bin/oauth-health.sh       # gold: avisa solo si el token deja de refrescarse
+├── bin/pull-token.sh         # jala el token del Pi (hosts de carga)
+├── subir_masivo.py           # Uploader masivo robusto (Retry-After, resume, whitelist)
+├── consolidar_masivo.py      # Consolida carpetas en SharePoint (MoveCopyUtil server-side)
+├── subir_*.py, explorador_*.py, dashboard.py   # herramientas previas
+├── systemd/                  # units OAuth (sharepoint-oauth-health.*)
+├── deploy.sh                 # despliegue gold (notificador + cutover)
+└── requirements.txt
 ```
 
 ## Uso
 
-### 1. Iniciar Chrome con Debug
+### Token automático (servicio)
+
+El token se refresca solo: el refresher OAuth corre en la **Pi** y renueva el token cada ~50 min
+sin navegador. `gold` solo vigila (`bash deploy.sh` instala el notificador). Si el *refresh token*
+caduca (~cada 90 días), reautentica una vez con device-code:
 
 ```bash
-./start_chrome_debug.sh
+ssh raspberrypi3 'python3 ~/sharepoint-token/token_refresher.py login'
 ```
 
-### 2. Obtener Token
+Los hosts de carga jalan el token del Pi (`bin/pull-token.sh` / `rsync raspberrypi3:~/.cache/spm/.token`).
+Ver `MANUAL.md`.
 
-Navegar a SharePoint en Chrome y copiar el token de las DevTools (Network > Headers > Authorization)
-
-Guardar en archivo `.token`:
-```bash
-echo "eyJhbGc..." > .token
-```
-
-### 3. Iniciar Dashboard
+### Dashboard
 
 ```bash
-python3 dashboard.py
+python3 dashboard.py    # http://localhost:5000
 ```
-
-Acceder a: http://localhost:5000
 
 ### 4. Subida de Archivos
 
@@ -91,77 +98,12 @@ Editar las URLs de SharePoint en los archivos:
 
 ## Notas de Seguridad
 
-- **NO** subir el archivo `.token` al repositorio
-- El token expira cada ~60 minutos
-- El refresh automatico requiere Chrome con sesion activa
+- **NO** subir `.token` ni el *refresh token* al repositorio (ya en `.gitignore`)
+- El token de acceso expira cada ~60 min; el refresher OAuth en la Pi lo renueva automáticamente
+- Sin navegador, sin CDP, sin VNC: el flujo es OAuth2 refresh-token puro (solo HTTP a `login.microsoftonline.com`)
+- El *refresh token* se guarda con permisos `0600`; el único paso interactivo es el device-code (~90 días)
+- Entre hosts, el token viaja por la malla Tailscale vía `rsync` (sin exponer puertos a la red)
 
 ## Licencia
 
 MIT
-
-## Servicio Automatizado (Wayland - Recomendado)
-
-El servicio Wayland es más seguro que X11 y permite ejecución headless con acceso VNC cuando se necesite intervención manual.
-
-### Requisitos Wayland
-
-```bash
-# Instalar compositor Wayland y VNC
-sudo apt install cage wayvnc
-
-# Crear entorno virtual con uv
-uv venv && uv pip install websocket-client requests
-```
-
-### Archivos del Servicio
-
-| Archivo | Descripción |
-|---------|-------------|
-| `start_sharepoint_wayland.sh` | Script de control (start/stop/status/restart) |
-| `~/.config/systemd/user/sharepoint-wayland.service` | Servicio systemd |
-
-### Comandos del Servicio
-
-```bash
-# Iniciar manualmente
-./start_sharepoint_wayland.sh start
-
-# Ver estado
-./start_sharepoint_wayland.sh status
-
-# Detener
-./start_sharepoint_wayland.sh stop
-
-# Refrescar token manualmente
-./start_sharepoint_wayland.sh refresh
-```
-
-### Systemd (Auto-inicio)
-
-```bash
-# Habilitar servicio
-systemctl --user enable sharepoint-wayland.service
-
-# Permitir inicio sin login (requiere sudo)
-sudo loginctl enable-linger $USER
-
-# Ver estado
-systemctl --user status sharepoint-wayland
-
-# Ver logs
-journalctl --user -u sharepoint-wayland -f
-```
-
-### Acceso VNC (Login Manual)
-
-Cuando la sesión de Microsoft expire (~90 días), conectar via VNC:
-
-```bash
-vncviewer <servidor>:5900
-```
-
-### Seguridad Wayland vs X11
-
-- **Wayland**: Mejor aislamiento entre aplicaciones (anti-keylogger, no screenshots entre apps)
-- **cage**: Compositor minimalista que ejecuta Chrome en modo kiosk aislado
-- **Token**: Almacenado localmente, nunca expuesto en red

@@ -45,6 +45,9 @@ venv/
 *.log
 /tmp/
 
+# PID files (runtime, no versionar)
+*.pid
+
 # IDE
 .vscode/
 .idea/
@@ -54,7 +57,4 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
-
-# PID files
-*.pid
 

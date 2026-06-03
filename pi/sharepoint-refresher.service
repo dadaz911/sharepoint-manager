@@ -1,0 +1,14 @@
+[Unit]
+Description=SharePoint token refresher (OAuth refresh-token, sin navegador)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/home/daniel/sharepoint-token/config.env
+ExecStart=/usr/bin/python3 /home/daniel/sharepoint-token/token_refresher.py run
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target

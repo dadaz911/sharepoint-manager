@@ -1,0 +1,2 @@
+# Dependencias del refresher OAuth y los uploaders (solo HTTP, sin navegador).
+requests>=2.31
