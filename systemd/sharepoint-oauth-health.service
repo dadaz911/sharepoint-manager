@@ -1,0 +1,9 @@
+[Unit]
+Description=SharePoint OAuth — alerta SOLO si el token deja de refrescarse (re-login requerido)
+
+[Service]
+Type=oneshot
+ExecStart=/home/daniel/claudecode/sharepoint-manager/bin/oauth-health.sh
+# Para que notify-send llegue al escritorio.
+Environment=DISPLAY=:0
+Environment=WAYLAND_DISPLAY=wayland-0
