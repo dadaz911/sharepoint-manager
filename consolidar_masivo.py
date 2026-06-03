@@ -30,7 +30,7 @@ PROGRESS=os.environ.get("SPM_PROGRESS", os.path.join(SRC,".consolidate_progress.
 ONLY=os.environ.get("SPM_ONLY","")
 DRYRUN=os.environ.get("SPM_DRYRUN","")=="1"
 REAL={"CC","NIT","CE","PA","TI"}
-MAX_RETRIES=8
+MAX_RETRIES=int(os.environ.get("SPM_MAX_RETRIES","15"))  # subido de 8: reduce los 'noresp' por throttling
 HOST="https://"+BASE.split("/")[2]            # https://shdgov.sharepoint.com
 SITE=BASE.rsplit("/web",1)[0]                 # .../_api
 MOVE_EP=SITE+"/SP.MoveCopyUtil.MoveFile"      # rutas en el cuerpo -> evita el límite de URL
