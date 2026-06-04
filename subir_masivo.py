@@ -21,34 +21,43 @@ Config por entorno (todas requeridas salvo las que tienen default):
   SPM_EXTENSIONS  ".pdf,.png" (default; case-insensitive)
   SPM_PROGRESS    ruta del progress.json (default: <source>/.upload_progress.json)
 """
-import os, sys, time, json, signal, threading, urllib.parse
-from pathlib import Path
+
+import json
+import os
+import signal
+import sys
+import threading
+import time
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+
 import requests
 
-BASE_URL   = os.environ["SPM_BASE_URL"].rstrip("/")
-DEST_FOLDER= os.environ["SPM_DEST_FOLDER"].rstrip("/")
+BASE_URL = os.environ["SPM_BASE_URL"].rstrip("/")
+DEST_FOLDER = os.environ["SPM_DEST_FOLDER"].rstrip("/")
 SOURCE_DIR = Path(os.environ["SPM_SOURCE_DIR"])
 TOKEN_FILE = Path(os.environ["SPM_TOKEN_FILE"])
-THREADS    = int(os.environ.get("SPM_THREADS", "5"))  # 5 = punto óptimo observado en SHD (6 throttlea)
-EXTS       = tuple(e.strip().lower() for e in os.environ.get("SPM_EXTENSIONS", ".pdf,.png").split(","))
-PROGRESS   = Path(os.environ.get("SPM_PROGRESS", str(SOURCE_DIR / ".upload_progress.json")))
+THREADS = int(os.environ.get("SPM_THREADS", "5"))  # 5 = punto óptimo observado en SHD (6 throttlea)
+EXTS = tuple(e.strip().lower() for e in os.environ.get("SPM_EXTENSIONS", ".pdf,.png").split(","))
+PROGRESS = Path(os.environ.get("SPM_PROGRESS", str(SOURCE_DIR / ".upload_progress.json")))
 
 MAX_RETRIES = 8
-SAVE_EVERY  = 200
+SAVE_EVERY = 200
 
 # ── Estado compartido ─────────────────────────────────────────────────────────
-_lock      = threading.Lock()
-_uploaded  = set()          # rutas relativas ya subidas (resume)
-_known_dirs= set()          # server-relative URLs de carpetas que ya existen
-_token     = {"v": None}
-_pause_until = {"t": 0.0}    # back-off global por throttling
-_stats     = {"ok": 0, "skip": 0, "err": 0, "since_save": 0}
-_stop      = threading.Event()
+_lock = threading.Lock()
+_uploaded = set()  # rutas relativas ya subidas (resume)
+_known_dirs = set()  # server-relative URLs de carpetas que ya existen
+_token = {"v": None}
+_pause_until = {"t": 0.0}  # back-off global por throttling
+_stats = {"ok": 0, "skip": 0, "err": 0, "since_save": 0}
+_stop = threading.Event()
 _errors_log = None
 
 
-def log(m): print(f"[{time.strftime('%H:%M:%S')}] {m}", flush=True)
+def log(m):
+    print(f"[{time.strftime('%H:%M:%S')}] {m}", flush=True)
 
 
 def load_token():
@@ -78,8 +87,10 @@ def _throttle(resp):
     ra = resp.headers.get("Retry-After")
     secs = 0
     if ra:
-        try: secs = int(ra)
-        except ValueError: secs = 30
+        try:
+            secs = int(ra)
+        except ValueError:
+            secs = 30
     return max(secs, 10)
 
 
@@ -98,8 +109,8 @@ def _req(session, method, url, **kw):
         headers["Authorization"] = f"Bearer {token()}"
         try:
             r = session.request(method, url, headers=headers, timeout=120, **kw)
-        except requests.RequestException as e:
-            time.sleep(min(2 ** attempt, 30))
+        except requests.RequestException:
+            time.sleep(min(2**attempt, 30))
             kw["headers"] = headers
             continue
         if r.status_code in (429, 503):
@@ -108,7 +119,7 @@ def _req(session, method, url, **kw):
             kw["headers"] = headers
             continue
         if r.status_code == 401:
-            load_token()                      # el token externo se refresca solo
+            load_token()  # el token externo se refresca solo
             time.sleep(2)
             kw["headers"] = headers
             continue
@@ -139,8 +150,12 @@ def ensure_folder(session, rel_dir: str):
                 _known_dirs.add(cur)
         else:
             # Reintento de verificacion: si existe, seguir
-            chk = _req(session, "GET", f"{BASE_URL}/GetFolderByServerRelativeUrl('{enc}')?$select=Exists",
-                       headers={"Accept": "application/json;odata=nometadata"})
+            chk = _req(
+                session,
+                "GET",
+                f"{BASE_URL}/GetFolderByServerRelativeUrl('{enc}')?$select=Exists",
+                headers={"Accept": "application/json;odata=nometadata"},
+            )
             if chk is not None and chk.status_code == 200:
                 with _lock:
                     _known_dirs.add(cur)
@@ -159,7 +174,8 @@ def upload_one(session, file_path: Path):
     if not ensure_folder(session, rel_dir):
         with _lock:
             _stats["err"] += 1
-        _errors_log.write(f"folder_fail\t{rel}\n"); _errors_log.flush()
+        _errors_log.write(f"folder_fail\t{rel}\n")
+        _errors_log.flush()
         return
 
     server_folder = DEST_FOLDER if rel_dir in ("", ".") else f"{DEST_FOLDER}/{rel_dir}"
@@ -171,10 +187,16 @@ def upload_one(session, file_path: Path):
     except Exception as e:
         with _lock:
             _stats["err"] += 1
-        _errors_log.write(f"read_fail\t{rel}\t{e}\n"); _errors_log.flush()
+        _errors_log.write(f"read_fail\t{rel}\t{e}\n")
+        _errors_log.flush()
         return
-    r = _req(session, "POST", url, data=data,
-             headers={"Accept": "application/json;odata=nometadata", "Content-Type": "application/octet-stream"})
+    r = _req(
+        session,
+        "POST",
+        url,
+        data=data,
+        headers={"Accept": "application/json;odata=nometadata", "Content-Type": "application/octet-stream"},
+    )
     if r is not None and r.status_code in (200, 201):
         with _lock:
             _uploaded.add(rel)
@@ -187,7 +209,8 @@ def upload_one(session, file_path: Path):
         code = r.status_code if r is not None else "noresp"
         with _lock:
             _stats["err"] += 1
-        _errors_log.write(f"upload_fail\t{rel}\t{code}\n"); _errors_log.flush()
+        _errors_log.write(f"upload_fail\t{rel}\t{code}\n")
+        _errors_log.flush()
 
 
 def save_progress():
@@ -225,15 +248,18 @@ def enumerate_files():
 
 def main():
     if not SOURCE_DIR.is_dir():
-        log(f"ERROR: SPM_SOURCE_DIR no existe: {SOURCE_DIR}"); sys.exit(1)
+        log(f"ERROR: SPM_SOURCE_DIR no existe: {SOURCE_DIR}")
+        sys.exit(1)
     load_token()
     if not token():
-        log("ERROR: token vacio"); sys.exit(1)
+        log("ERROR: token vacio")
+        sys.exit(1)
     load_progress()
 
     def _sig(*_):
         log("Señal recibida — guardando progreso y saliendo...")
         _stop.set()
+
     signal.signal(signal.SIGINT, _sig)
     signal.signal(signal.SIGTERM, _sig)
 
@@ -253,16 +279,20 @@ def main():
         pending = pending[:limit]
         log(f"SPM_LIMIT={limit} -> corriendo solo {len(pending)} archivos (prueba)")
     if not pending:
-        log("Nada pendiente. Listo."); return
+        log("Nada pendiente. Listo.")
+        return
 
     t0 = time.time()
     with ThreadPoolExecutor(max_workers=THREADS) as ex:
         _tl = threading.local()
+
         def work(p):
             s = getattr(_tl, "s", None)
             if s is None:
-                s = requests.Session(); _tl.s = s
+                s = requests.Session()
+                _tl.s = s
             upload_one(s, p)
+
         futs = [ex.submit(work, p) for p in pending]
         done = 0
         for _ in as_completed(futs):

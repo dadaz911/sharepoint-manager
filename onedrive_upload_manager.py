@@ -12,18 +12,17 @@ USO:
    python3 onedrive_upload_manager.py status # Ver estado
 """
 
-import os
-import sys
-import json
-import time
 import base64
-import signal
-import requests
+import json
 import subprocess
+import sys
 import threading
-from pathlib import Path
+import time
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Tuple
+
+import requests
 
 # Configuración
 CONFIG = {
@@ -33,7 +32,7 @@ CONFIG = {
     "cdp_port": 9222,
     "onedrive_url": "https://shdgov-my.sharepoint.com",
     "refresh_threshold": 10,  # Refrescar cuando queden menos de 10 minutos
-    "check_interval": 120,    # Verificar cada 2 minutos
+    "check_interval": 120,  # Verificar cada 2 minutos
     "total_files": 92579,
 }
 
@@ -105,7 +104,7 @@ class OneDriveManager:
             f"--remote-debugging-port={CONFIG['cdp_port']}",
             f"--user-data-dir={Path.home()}/.config/google-chrome",
             "--profile-directory=Default",
-            CONFIG["onedrive_url"]
+            CONFIG["onedrive_url"],
         ]
 
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -167,11 +166,11 @@ class OneDriveManager:
             })()
             """
 
-            ws.send(json.dumps({
-                "id": 2,
-                "method": "Runtime.evaluate",
-                "params": {"expression": js_code, "returnByValue": True}
-            }))
+            ws.send(
+                json.dumps(
+                    {"id": 2, "method": "Runtime.evaluate", "params": {"expression": js_code, "returnByValue": True}}
+                )
+            )
 
             response = json.loads(ws.recv())
             ws.close()
@@ -204,7 +203,9 @@ class OneDriveManager:
                     print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Token EXPIRADO - Refrescando...")
                     self.refresh_token()
                 elif remaining < CONFIG["refresh_threshold"]:
-                    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Token por expirar ({remaining:.0f} min) - Refrescando...")
+                    print(
+                        f"\n[{datetime.now().strftime('%H:%M:%S')}] Token por expirar ({remaining:.0f} min) - Refrescando..."
+                    )
                     self.refresh_token()
 
                 time.sleep(CONFIG["check_interval"])
@@ -222,10 +223,7 @@ class OneDriveManager:
             return None
 
         print("Iniciando subida de archivos...")
-        self.upload_process = subprocess.Popen(
-            [sys.executable, str(upload_script)],
-            cwd=CONFIG["base_dir"]
-        )
+        self.upload_process = subprocess.Popen([sys.executable, str(upload_script)], cwd=CONFIG["base_dir"])
         return self.upload_process
 
     def status(self):
@@ -251,7 +249,7 @@ class OneDriveManager:
             if exp:
                 print(f"  Expira: {exp.strftime('%H:%M:%S')}")
         else:
-            print(f"  Token: EXPIRADO")
+            print("  Token: EXPIRADO")
         print()
 
         # Chrome

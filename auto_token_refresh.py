@@ -18,15 +18,14 @@ El daemon:
 - Funciona sin intervención
 """
 
-import os
-import sys
-import json
-import time
 import base64
+import json
 import signal
 import subprocess
-from pathlib import Path
+import sys
+import time
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Tuple
 
 # Configuración
@@ -85,6 +84,7 @@ class AutoTokenRefresh:
         """Verificar si Chrome dedicado está corriendo"""
         try:
             import requests
+
             r = requests.get(f"http://localhost:{CONFIG['cdp_port']}/json/version", timeout=2)
             return r.status_code == 200
         except:
@@ -109,11 +109,7 @@ class AutoTokenRefresh:
 
         cmd.append(CONFIG["onedrive_url"])
 
-        self.chrome_process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
+        self.chrome_process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         # Esperar a que inicie
         for _ in range(15):
@@ -148,11 +144,7 @@ class AutoTokenRefresh:
                 if tabs:
                     tab = tabs[0]
                     ws = websocket.create_connection(tab["webSocketDebuggerUrl"], timeout=10)
-                    ws.send(json.dumps({
-                        "id": 1,
-                        "method": "Page.navigate",
-                        "params": {"url": CONFIG["onedrive_url"]}
-                    }))
+                    ws.send(json.dumps({"id": 1, "method": "Page.navigate", "params": {"url": CONFIG["onedrive_url"]}}))
                     ws.recv()
                     ws.close()
                     time.sleep(5)
@@ -190,11 +182,11 @@ class AutoTokenRefresh:
             })()
             """
 
-            ws.send(json.dumps({
-                "id": 2,
-                "method": "Runtime.evaluate",
-                "params": {"expression": js_code, "returnByValue": True}
-            }))
+            ws.send(
+                json.dumps(
+                    {"id": 2, "method": "Runtime.evaluate", "params": {"expression": js_code, "returnByValue": True}}
+                )
+            )
 
             response = json.loads(ws.recv())
             ws.close()
@@ -232,11 +224,7 @@ class AutoTokenRefresh:
     def notify(self, title: str, message: str):
         """Enviar notificación del sistema"""
         try:
-            subprocess.run(
-                ["notify-send", title, message, "-u", "normal"],
-                capture_output=True,
-                timeout=5
-            )
+            subprocess.run(["notify-send", title, message, "-u", "normal"], capture_output=True, timeout=5)
         except:
             pass
 
@@ -273,7 +261,7 @@ class AutoTokenRefresh:
             self.token_file.write_text(token + "\n")
             _, remaining = self.get_token_info()
             print()
-            print(f"¡Configuración exitosa!")
+            print("¡Configuración exitosa!")
             print(f"Token guardado. Validez: {remaining:.0f} minutos")
             print()
             print("Ahora puedes cerrar Chrome y ejecutar:")

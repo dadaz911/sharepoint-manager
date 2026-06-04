@@ -4,10 +4,11 @@ Script auxiliar para mostrar instrucciones de actualización de token.
 El token se actualiza automáticamente cuando Claude tiene acceso al navegador.
 """
 
-import json
-from pathlib import Path
-from datetime import datetime
 import base64
+import json
+from datetime import datetime
+from pathlib import Path
+
 
 def decode_jwt_expiry(token):
     """Decodificar fecha de expiración del token"""
@@ -29,6 +30,7 @@ def decode_jwt_expiry(token):
     except:
         pass
     return None
+
 
 def main():
     token_file = Path("/home/daniel/Desktop/Cargue a Onedrive/.token")
@@ -76,6 +78,7 @@ def main():
     print("  Para continuar la subida:")
     print("  python3 subir_onedrive.py")
     print("=" * 50)
+
 
 if __name__ == "__main__":
     main()

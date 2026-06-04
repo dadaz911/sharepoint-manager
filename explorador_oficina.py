@@ -4,13 +4,13 @@ Explorador del sitio SharePoint de la Oficina de Depuración de Cartera.
 Genera un mapa del sitio sin descargar archivos.
 """
 
-import os
+import base64
 import json
 import urllib.parse
-import requests
-import base64
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
+import requests
 
 CONFIG = {
     "site_url": "https://shdgov.sharepoint.com/sites/OficinadeDepuracindeCartera",
@@ -60,10 +60,7 @@ class ExploradorOficina:
             return 0
 
     def get_headers(self):
-        return {
-            "Authorization": f"Bearer {self.token}",
-            "Accept": "application/json;odata=verbose"
-        }
+        return {"Authorization": f"Bearer {self.token}", "Accept": "application/json;odata=verbose"}
 
     def load_cache(self):
         if CONFIG["cache_file"].exists():
@@ -87,13 +84,7 @@ class ExploradorOficina:
         encoded_folder = urllib.parse.quote(folder_path, safe='/')
         indent = "  " * profundidad
 
-        resultado = {
-            "path": folder_path,
-            "folders": [],
-            "files": [],
-            "file_count": 0,
-            "total_size": 0
-        }
+        resultado = {"path": folder_path, "folders": [], "files": [], "file_count": 0, "total_size": 0}
 
         # Obtener subcarpetas
         url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_folder}')/Folders"
@@ -107,11 +98,9 @@ class ExploradorOficina:
                 for f in folders:
                     name = f.get('Name', '')
                     if not name.startswith('_'):
-                        resultado["folders"].append({
-                            "name": name,
-                            "path": f.get('ServerRelativeUrl'),
-                            "item_count": f.get('ItemCount', 0)
-                        })
+                        resultado["folders"].append(
+                            {"name": name, "path": f.get('ServerRelativeUrl'), "item_count": f.get('ItemCount', 0)}
+                        )
         except Exception as e:
             print(f"{indent}[ERROR carpetas] {e}")
 
@@ -126,12 +115,14 @@ class ExploradorOficina:
                 files = data.get('d', {}).get('results', [])
                 for f in files:
                     size = int(f.get('Length', 0))
-                    resultado["files"].append({
-                        "name": f.get('Name'),
-                        "size": size,
-                        "modified": f.get('TimeLastModified'),
-                        "path": f.get('ServerRelativeUrl')
-                    })
+                    resultado["files"].append(
+                        {
+                            "name": f.get('Name'),
+                            "size": size,
+                            "modified": f.get('TimeLastModified'),
+                            "path": f.get('ServerRelativeUrl'),
+                        }
+                    )
                     resultado["total_size"] += size
                 resultado["file_count"] = len(files)
             elif r.status_code == 500:
@@ -145,12 +136,12 @@ class ExploradorOficina:
         """Generar mapa del sitio"""
         folder = folder_path or CONFIG["root_folder"]
 
-        print(f"\n{'='*60}")
-        print(f"  MAPA DEL SITIO: Oficina de Depuración de Cartera")
+        print(f"\n{'=' * 60}")
+        print("  MAPA DEL SITIO: Oficina de Depuración de Cartera")
         print(f"  Carpeta: {folder}")
         print(f"  Profundidad: {max_profundidad}")
         print(f"  Token: {self.token_minutes():.0f} min restantes")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
         def explorar_recursivo(path, nivel=0):
             if nivel > max_profundidad:
@@ -165,10 +156,7 @@ class ExploradorOficina:
                 return None
 
             for subfolder in resultado.get("folders", []):
-                subfolder["contenido"] = explorar_recursivo(
-                    subfolder["path"],
-                    nivel + 1
-                )
+                subfolder["contenido"] = explorar_recursivo(subfolder["path"], nivel + 1)
 
             return resultado
 
@@ -196,7 +184,7 @@ class ExploradorOficina:
             nombre = data["path"].split('/')[-1] or "Documentos compartidos"
 
             file_info = data.get("file_count", 0)
-            size_mb = data.get("total_size", 0) / (1024*1024)
+            size_mb = data.get("total_size", 0) / (1024 * 1024)
 
             if file_info == ">5000":
                 print(f"{indent}[DIR] {nombre}/ (>5000 archivos)")
@@ -212,10 +200,10 @@ class ExploradorOficina:
                     item_count = subfolder.get("item_count", "?")
                     print(f"{indent}  [DIR] {subfolder['name']}/ ({item_count} items)")
 
-        print(f"\n{'='*60}")
-        print(f"  ARBOL - Oficina de Depuración de Cartera")
+        print(f"\n{'=' * 60}")
+        print("  ARBOL - Oficina de Depuración de Cartera")
         print(f"  Ultima actualizacion: {self.mapa.get('last_update', 'N/A')}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
         mostrar_recursivo(data)
 
@@ -230,20 +218,11 @@ class ExploradorOficina:
 
             for f in data.get("files", []):
                 if termino in f["name"].lower():
-                    resultados.append({
-                        "tipo": "archivo",
-                        "nombre": f["name"],
-                        "ruta": f["path"],
-                        "tamano": f["size"]
-                    })
+                    resultados.append({"tipo": "archivo", "nombre": f["name"], "ruta": f["path"], "tamano": f["size"]})
 
             for folder in data.get("folders", []):
                 if termino in folder["name"].lower():
-                    resultados.append({
-                        "tipo": "carpeta",
-                        "nombre": folder["name"],
-                        "ruta": folder["path"]
-                    })
+                    resultados.append({"tipo": "carpeta", "nombre": folder["name"], "ruta": folder["path"]})
                 if folder.get("contenido"):
                     buscar_recursivo(folder["contenido"])
 
@@ -301,7 +280,7 @@ class ExploradorOficina:
                         downloaded += len(chunk)
                         if total:
                             pct = (downloaded / total) * 100
-                            print(f"\r  {pct:.1f}% ({downloaded/1024/1024:.1f} MB)", end="", flush=True)
+                            print(f"\r  {pct:.1f}% ({downloaded / 1024 / 1024:.1f} MB)", end="", flush=True)
 
             print(f"\n[OK] Guardado en: {dest_path}")
             return True
@@ -327,9 +306,9 @@ class ExploradorOficina:
             r = requests.get(url, headers=self.get_headers(), timeout=30)
             if r.status_code == 200:
                 libs = r.json().get('d', {}).get('results', [])
-                print(f"\n{'='*60}")
-                print(f"  BIBLIOTECAS DE DOCUMENTOS")
-                print(f"{'='*60}\n")
+                print(f"\n{'=' * 60}")
+                print("  BIBLIOTECAS DE DOCUMENTOS")
+                print(f"{'=' * 60}\n")
                 for lib in libs:
                     title = lib.get('Title', 'N/A')
                     count = lib.get('ItemCount', 0)
@@ -351,10 +330,10 @@ def menu_interactivo():
         return
 
     while True:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("  EXPLORADOR - Oficina de Depuración de Cartera")
         print(f"  Token: {exp.token_minutes():.0f} min restantes")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print()
         print("  1. Listar bibliotecas de documentos")
         print("  2. Generar/Actualizar mapa")

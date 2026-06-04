@@ -4,15 +4,13 @@ Script para subir archivos masivamente a OneDrive usando el token del navegador.
 Uso: python3 subir_onedrive.py
 """
 
-import os
-import sys
 import json
+import sys
 import time
 import urllib.parse
-import requests
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+
+import requests
 
 # Configuración
 CONFIG = {
@@ -23,6 +21,7 @@ CONFIG = {
     "extensions": [".pdf", ".PDF"],
     "exclude_dirs": [".claude", "__pycache__", ".git"],
 }
+
 
 class OneDriveUploader:
     def __init__(self):
@@ -64,10 +63,7 @@ class OneDriveUploader:
             return False
 
         url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{CONFIG['dest_folder']}')"
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Accept": "application/json"
-        }
+        headers = {"Authorization": f"Bearer {self.token}", "Accept": "application/json"}
         try:
             r = self.session.get(url, headers=headers, timeout=10)
             return r.status_code == 200
@@ -97,10 +93,7 @@ class OneDriveUploader:
             encoded_path = urllib.parse.quote(full_path, safe='/')
             url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_path}')"
 
-            headers = {
-                "Authorization": f"Bearer {self.token}",
-                "Accept": "application/json"
-            }
+            headers = {"Authorization": f"Bearer {self.token}", "Accept": "application/json"}
 
             r = self.session.get(url, headers=headers, timeout=10)
 
@@ -119,7 +112,7 @@ class OneDriveUploader:
                 if r.status_code in [200, 201]:
                     self.created_folders.add(full_path)
                     print(f"  📁 Carpeta creada: {current_path}")
-            except Exception as e:
+            except Exception:
                 pass
 
         return True
@@ -151,7 +144,7 @@ class OneDriveUploader:
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Accept": "application/json;odata=verbose",
-            "Content-Type": "application/octet-stream"
+            "Content-Type": "application/octet-stream",
         }
 
         try:
@@ -215,8 +208,7 @@ class OneDriveUploader:
         already_uploaded = len(self.progress["uploaded"])
 
         # Filtrar ya subidos
-        files_to_upload = [f for f in all_files
-                          if str(f.relative_to(self.source_dir)) not in self.progress["uploaded"]]
+        files_to_upload = [f for f in all_files if str(f.relative_to(self.source_dir)) not in self.progress["uploaded"]]
 
         print(f"📊 Total de archivos: {len(all_files)}")
         print(f"✅ Ya subidos: {already_uploaded}")
@@ -259,10 +251,10 @@ class OneDriveUploader:
             elapsed = time.time() - start_time
             print()
             print("=" * 50)
-            print(f"📊 Resumen:")
+            print("📊 Resumen:")
             print(f"   ✅ Subidos: {self.uploaded_count}")
             print(f"   ❌ Errores: {self.error_count}")
-            print(f"   ⏱️  Tiempo: {elapsed/60:.1f} minutos")
+            print(f"   ⏱️  Tiempo: {elapsed / 60:.1f} minutos")
             print(f"   📁 Total subidos: {len(self.progress['uploaded'])}")
             print("=" * 50)
 

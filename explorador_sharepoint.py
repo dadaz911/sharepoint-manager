@@ -4,13 +4,13 @@ Explorador de SharePoint - Navega y descarga archivos bajo demanda.
 Genera un mapa del sitio sin descargar los archivos.
 """
 
-import os
+import base64
 import json
 import urllib.parse
-import requests
-import base64
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
+import requests
 
 CONFIG = {
     "base_url": "https://shdgov-my.sharepoint.com/personal/dzuniga_shd_gov_co1/_api/web",
@@ -47,10 +47,7 @@ class ExploradorSharePoint:
             return False
 
     def get_headers(self):
-        return {
-            "Authorization": f"Bearer {self.token}",
-            "Accept": "application/json;odata=verbose"
-        }
+        return {"Authorization": f"Bearer {self.token}", "Accept": "application/json;odata=verbose"}
 
     def load_cache(self):
         """Cargar mapa cacheado"""
@@ -79,13 +76,7 @@ class ExploradorSharePoint:
         encoded_folder = urllib.parse.quote(folder_path, safe='/')
         indent = "  " * profundidad
 
-        resultado = {
-            "path": folder_path,
-            "folders": [],
-            "files": [],
-            "file_count": 0,
-            "total_size": 0
-        }
+        resultado = {"path": folder_path, "folders": [], "files": [], "file_count": 0, "total_size": 0}
 
         # Obtener subcarpetas
         url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_folder}')/Folders"
@@ -99,11 +90,9 @@ class ExploradorSharePoint:
                 for f in folders:
                     name = f.get('Name', '')
                     if not name.startswith('_'):  # Ignorar carpetas de sistema
-                        resultado["folders"].append({
-                            "name": name,
-                            "path": f.get('ServerRelativeUrl'),
-                            "item_count": f.get('ItemCount', 0)
-                        })
+                        resultado["folders"].append(
+                            {"name": name, "path": f.get('ServerRelativeUrl'), "item_count": f.get('ItemCount', 0)}
+                        )
         except Exception as e:
             print(f"{indent}[ERROR carpetas] {e}")
 
@@ -118,12 +107,14 @@ class ExploradorSharePoint:
                 files = data.get('d', {}).get('results', [])
                 for f in files:
                     size = int(f.get('Length', 0))
-                    resultado["files"].append({
-                        "name": f.get('Name'),
-                        "size": size,
-                        "modified": f.get('TimeLastModified'),
-                        "path": f.get('ServerRelativeUrl')
-                    })
+                    resultado["files"].append(
+                        {
+                            "name": f.get('Name'),
+                            "size": size,
+                            "modified": f.get('TimeLastModified'),
+                            "path": f.get('ServerRelativeUrl'),
+                        }
+                    )
                     resultado["total_size"] += size
                 resultado["file_count"] = len(files)
             elif r.status_code == 500:
@@ -138,10 +129,10 @@ class ExploradorSharePoint:
         """Generar mapa completo del sitio"""
         folder = folder_path or CONFIG["root_folder"]
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  GENERANDO MAPA DE: {folder}")
         print(f"  Profundidad maxima: {max_profundidad}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
         def explorar_recursivo(path, nivel=0):
             if nivel > max_profundidad:
@@ -157,10 +148,7 @@ class ExploradorSharePoint:
 
             # Explorar subcarpetas recursivamente
             for subfolder in resultado.get("folders", []):
-                subfolder["contenido"] = explorar_recursivo(
-                    subfolder["path"],
-                    nivel + 1
-                )
+                subfolder["contenido"] = explorar_recursivo(subfolder["path"], nivel + 1)
 
             return resultado
 
@@ -189,7 +177,7 @@ class ExploradorSharePoint:
 
             # Mostrar info de carpeta
             file_info = data.get("file_count", 0)
-            size_mb = data.get("total_size", 0) / (1024*1024)
+            size_mb = data.get("total_size", 0) / (1024 * 1024)
 
             if file_info == ">5000":
                 print(f"{indent}[DIR] {nombre}/ (>5000 archivos)")
@@ -206,10 +194,10 @@ class ExploradorSharePoint:
                     item_count = subfolder.get("item_count", "?")
                     print(f"{indent}  [DIR] {subfolder['name']}/ ({item_count} items)")
 
-        print(f"\n{'='*60}")
-        print(f"  ARBOL DE CARPETAS")
+        print(f"\n{'=' * 60}")
+        print("  ARBOL DE CARPETAS")
         print(f"  Ultima actualizacion: {self.mapa.get('last_update', 'N/A')}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
         mostrar_recursivo(data)
 
@@ -225,21 +213,12 @@ class ExploradorSharePoint:
             # Buscar en archivos
             for f in data.get("files", []):
                 if termino in f["name"].lower():
-                    resultados.append({
-                        "tipo": "archivo",
-                        "nombre": f["name"],
-                        "ruta": f["path"],
-                        "tamano": f["size"]
-                    })
+                    resultados.append({"tipo": "archivo", "nombre": f["name"], "ruta": f["path"], "tamano": f["size"]})
 
             # Buscar en carpetas
             for folder in data.get("folders", []):
                 if termino in folder["name"].lower():
-                    resultados.append({
-                        "tipo": "carpeta",
-                        "nombre": folder["name"],
-                        "ruta": folder["path"]
-                    })
+                    resultados.append({"tipo": "carpeta", "nombre": folder["name"], "ruta": folder["path"]})
                 if folder.get("contenido"):
                     buscar_recursivo(folder["contenido"])
 
@@ -299,7 +278,7 @@ class ExploradorSharePoint:
                         downloaded += len(chunk)
                         if total:
                             pct = (downloaded / total) * 100
-                            print(f"\r  {pct:.1f}% ({downloaded/1024/1024:.1f} MB)", end="", flush=True)
+                            print(f"\r  {pct:.1f}% ({downloaded / 1024 / 1024:.1f} MB)", end="", flush=True)
 
             print(f"\n[OK] Guardado en: {dest_path}")
             return True
@@ -346,7 +325,7 @@ class ExploradorSharePoint:
                 file_name = f.get('Name')
                 dest_file = dest_dir / file_name
 
-                print(f"  [{i+1}/{len(files)}] {file_name}")
+                print(f"  [{i + 1}/{len(files)}] {file_name}")
                 self.descargar_archivo(file_path, str(dest_file))
 
             print(f"\n[OK] Carpeta descargada: {dest_dir}")
@@ -366,9 +345,9 @@ def menu_interactivo():
         return
 
     while True:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("  EXPLORADOR DE SHAREPOINT")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print()
         print("  1. Generar/Actualizar mapa del sitio")
         print("  2. Mostrar arbol de carpetas")
