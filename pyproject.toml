@@ -1,0 +1,29 @@
+# Configuración de tooling para SharePoint Manager.
+# CI estricto: ruff (lint + format) + mypy sobre todos los .py. Ver .github/workflows/ci.yml.
+
+[tool.ruff]
+target-version = "py38"      # requisito del proyecto: Python 3.8+
+line-length = 120            # scripts operativos con líneas largas; 120 reduce ruido sin perder señal
+
+[tool.ruff.lint]
+# Conjunto estricto pero pragmático para scripts operativos:
+#   E/W pycodestyle · F pyflakes · I isort · UP pyupgrade · B bugbear · C4 comprehensions · SIM simplify
+select = ["E", "W", "F", "I", "UP", "B", "C4", "SIM"]
+ignore = [
+    "E402",   # imports no al tope: token_refresher carga config.env antes de leer el entorno (intencional)
+    "E741",   # nombres de una letra ocasionales en scripts
+    "SIM105", # contextlib.suppress: try/except/pass explícito es más legible en estos scripts
+]
+
+[tool.ruff.format]
+quote-style = "preserve"     # no reescribir comillas en los scripts existentes
+
+[tool.mypy]
+# Sin python_version pinneado: mypy usa el runtime (todos los hosts corren 3.13).
+# La compat 3.8+ del código la cubren `from __future__ import annotations` (runtime)
+# y `target-version = py38` de ruff (lint).
+ignore_missing_imports = true   # requests, etc. sin stubs
+warn_unused_ignores = true
+warn_redundant_casts = true
+# Pragmático: NO exigimos anotar todo (scripts), solo coherencia de tipos donde mypy puede inferir.
+check_untyped_defs = false

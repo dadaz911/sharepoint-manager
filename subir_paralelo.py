@@ -4,17 +4,16 @@ Script de subida PARALELA a OneDrive/SharePoint
 Permite configurar el numero de hilos para acelerar la subida.
 """
 
-import os
-import sys
+import base64
 import json
+import threading
 import time
 import urllib.parse
-import requests
-import base64
-import threading
-from pathlib import Path
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from pathlib import Path
+
+import requests
 
 CONFIG = {
     "base_url": "https://shdgov-my.sharepoint.com/personal/dzuniga_shd_gov_co1/_api/web",
@@ -24,6 +23,7 @@ CONFIG = {
     "exclude_dirs": [".claude", "__pycache__", ".git"],
     "min_token_minutes": 5,
 }
+
 
 class ParallelUploader:
     def __init__(self, num_threads=4):
@@ -46,7 +46,7 @@ class ParallelUploader:
             try:
                 with open(self.progress_file) as f:
                     return json.load(f)
-            except:
+            except Exception:
                 pass
         return {"uploaded": [], "errors": [], "folders_created": []}
 
@@ -72,20 +72,20 @@ class ParallelUploader:
             exp = datetime.fromtimestamp(int(data['exp']))
             remaining = (exp - datetime.now()).total_seconds() / 60
             return max(0, remaining)
-        except:
+        except Exception:
             return 0
 
     def is_token_valid(self):
         return self.token_minutes_remaining() > CONFIG["min_token_minutes"]
 
     def wait_for_new_token(self):
-        print(f"\n[PAUSA] Token expirado - Esperando nuevo token...")
+        print("\n[PAUSA] Token expirado - Esperando nuevo token...")
         old_token = self.token
         while not self.stop_flag:
             time.sleep(10)
             self.load_token()
             if self.token != old_token and self.is_token_valid():
-                print(f"[OK] Nuevo token detectado! Continuando...")
+                print("[OK] Nuevo token detectado! Continuando...")
                 return True
         return False
 
@@ -128,7 +128,7 @@ class ParallelUploader:
                 if r.status_code in [200, 201]:
                     with self.lock:
                         self.created_folders.add(full_path)
-            except:
+            except Exception:
                 pass
 
         return True
@@ -161,12 +161,12 @@ class ParallelUploader:
         file_name = file_path.name
         encoded_name = urllib.parse.quote(file_name)
 
-        url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_folder}')/Files/add(url='{encoded_name}',overwrite=true)"
+        url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_folder}')/Files/add(url='{encoded_name}',overwrite=true)"  # noqa: E501
 
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Accept": "application/json;odata=verbose",
-            "Content-Type": "application/octet-stream"
+            "Content-Type": "application/octet-stream",
         }
 
         try:
@@ -234,8 +234,7 @@ class ParallelUploader:
         with self.lock:
             uploaded_set = set(self.progress["uploaded"])
 
-        files_to_upload = [f for f in all_files
-                          if str(f.relative_to(self.source_dir)) not in uploaded_set]
+        files_to_upload = [f for f in all_files if str(f.relative_to(self.source_dir)) not in uploaded_set]
 
         self.already_uploaded = len(self.progress["uploaded"])
         pending = len(files_to_upload)
@@ -272,10 +271,14 @@ class ParallelUploader:
                         remaining_files = self.total_files - current
                         eta_min = remaining_files / rate if rate > 0 else 0
 
-                        print(f"\r[{current}/{self.total_files}] {pct:.1f}% | {rate:.0f}/min | ETA: {eta_min:.0f}min   ", end="", flush=True)
+                        print(
+                            f"\r[{current}/{self.total_files}] {pct:.1f}% | {rate:.0f}/min | ETA: {eta_min:.0f}min   ",
+                            end="",
+                            flush=True,
+                        )
 
                     elif result["status"] == "token_expired":
-                        print(f"\n[TOKEN] Expirado, pausando hilos...")
+                        print("\n[TOKEN] Expirado, pausando hilos...")
                         self.save_progress()
                         if self.wait_for_new_token():
                             retry_queue.append(futures[future])
@@ -304,12 +307,12 @@ class ParallelUploader:
 
             print()
             print("=" * 60)
-            print(f"  RESUMEN")
+            print("  RESUMEN")
             print(f"  Subidos esta sesion: {self.uploaded_count}")
             print(f"  Errores: {self.error_count}")
             print(f"  Total subidos: {len(self.progress['uploaded'])}")
-            print(f"  Tiempo: {elapsed/60:.1f} min")
-            print(f"  Velocidad: {self.uploaded_count/(elapsed/60):.0f} archivos/min")
+            print(f"  Tiempo: {elapsed / 60:.1f} min")
+            print(f"  Velocidad: {self.uploaded_count / (elapsed / 60):.0f} archivos/min")
             print(f"  Restantes: {self.total_files - len(self.progress['uploaded'])}")
             print("=" * 60)
 
@@ -329,10 +332,7 @@ def main():
     while True:
         try:
             threads = input("  Numero de hilos [4]: ").strip()
-            if not threads:
-                threads = 4
-            else:
-                threads = int(threads)
+            threads = 4 if not threads else int(threads)
 
             if 1 <= threads <= 10:
                 break

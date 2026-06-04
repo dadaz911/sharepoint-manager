@@ -4,15 +4,14 @@ Script de subida automática a OneDrive con manejo de token.
 Se pausa cuando el token expira y espera uno nuevo.
 """
 
-import os
-import sys
+import base64
 import json
 import time
 import urllib.parse
-import requests
-import base64
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
+import requests
 
 CONFIG = {
     "base_url": "https://shdgov-my.sharepoint.com/personal/dzuniga_shd_gov_co1/_api/web",
@@ -23,6 +22,7 @@ CONFIG = {
     "token_check_interval": 100,  # Verificar token cada N archivos
     "min_token_minutes": 5,  # Minutos mínimos antes de necesitar refresh
 }
+
 
 class AutoUploader:
     def __init__(self):
@@ -42,7 +42,7 @@ class AutoUploader:
             try:
                 with open(self.progress_file) as f:
                     return json.load(f)
-            except:
+            except Exception:
                 pass
         return {"uploaded": [], "errors": [], "folders_created": []}
 
@@ -65,7 +65,7 @@ class AutoUploader:
             payload = parts[1] + '=' * (4 - len(parts[1]) % 4)
             data = json.loads(base64.urlsafe_b64decode(payload))
             return datetime.fromtimestamp(int(data['exp']))
-        except:
+        except Exception:
             return None
 
     def token_minutes_remaining(self):
@@ -83,9 +83,9 @@ class AutoUploader:
     def wait_for_new_token(self):
         """Esperar a que se actualice el token"""
         self.waiting_for_token = True
-        print(f"\n⏸️  TOKEN EXPIRADO - Esperando nuevo token...")
-        print(f"   Claude Code debe refrescar el token desde el navegador")
-        print(f"   Verificando cada 30 segundos...\n")
+        print("\n⏸️  TOKEN EXPIRADO - Esperando nuevo token...")
+        print("   Claude Code debe refrescar el token desde el navegador")
+        print("   Verificando cada 30 segundos...\n")
 
         old_token = self.token
         while True:
@@ -93,7 +93,7 @@ class AutoUploader:
             self.load_token()
 
             if self.token != old_token and self.is_token_valid():
-                print(f"✅ Nuevo token detectado! Continuando...")
+                print("✅ Nuevo token detectado! Continuando...")
                 self.waiting_for_token = False
                 return True
 
@@ -108,7 +108,7 @@ class AutoUploader:
         try:
             r = self.session.get(url, headers=headers, timeout=10)
             return r.status_code == 200
-        except:
+        except Exception:
             return False
 
     def create_folder(self, relative_path):
@@ -146,7 +146,7 @@ class AutoUploader:
                 if r.status_code in [200, 201]:
                     self.created_folders.add(full_path)
                     print(f"  📁 Carpeta: {current_path}")
-            except:
+            except Exception:
                 pass
 
         return True
@@ -169,12 +169,12 @@ class AutoUploader:
         file_name = file_path.name
         encoded_name = urllib.parse.quote(file_name)
 
-        url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_folder}')/Files/add(url='{encoded_name}',overwrite=true)"
+        url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_folder}')/Files/add(url='{encoded_name}',overwrite=true)"  # noqa: E501
 
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Accept": "application/json;odata=verbose",
-            "Content-Type": "application/octet-stream"
+            "Content-Type": "application/octet-stream",
         }
 
         try:
@@ -228,8 +228,7 @@ class AutoUploader:
         print()
 
         all_files = self.get_files_to_upload()
-        files_to_upload = [f for f in all_files
-                          if str(f.relative_to(self.source_dir)) not in self.progress["uploaded"]]
+        files_to_upload = [f for f in all_files if str(f.relative_to(self.source_dir)) not in self.progress["uploaded"]]
 
         total = len(all_files)
         already = len(self.progress["uploaded"])
@@ -266,7 +265,7 @@ class AutoUploader:
                     pct = ((already + self.uploaded_count) / total) * 100
                     print(f"✅ [{already + self.uploaded_count}/{total}] ({pct:.1f}%) {result['file']}")
                 elif result["status"] == "token_expired":
-                    print(f"⚠️  Token expirado durante subida")
+                    print("⚠️  Token expirado durante subida")
                     self.save_progress()
                     self.wait_for_new_token()
                     # Reintentar este archivo
@@ -293,11 +292,11 @@ class AutoUploader:
 
             print()
             print("=" * 60)
-            print(f"📊 RESUMEN")
+            print("📊 RESUMEN")
             print(f"   ✅ Subidos esta sesión: {self.uploaded_count}")
             print(f"   ❌ Errores: {self.error_count}")
             print(f"   📁 Total subidos: {len(self.progress['uploaded'])}")
-            print(f"   ⏱️  Tiempo: {elapsed/60:.1f} min")
+            print(f"   ⏱️  Tiempo: {elapsed / 60:.1f} min")
             print(f"   📈 Restantes: {total - len(self.progress['uploaded'])}")
             print("=" * 60)
 

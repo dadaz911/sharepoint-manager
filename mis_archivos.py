@@ -4,19 +4,20 @@ Utilidad para gestionar SOLO mis archivos en OneDrive/SharePoint.
 Solo permite operaciones en archivos donde el usuario actual es el Author.
 """
 
-import os
+import base64
 import json
 import urllib.parse
-import requests
-import base64
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
+import requests
 
 CONFIG = {
     "base_url": "https://shdgov-my.sharepoint.com/personal/dzuniga_shd_gov_co1/_api/web",
     "dest_folder": "/personal/dzuniga_shd_gov_co1/Documents/Pruebas",
     "token_file": Path("/home/daniel/Desktop/Cargue a Onedrive/.token"),
 }
+
 
 class MisArchivos:
     def __init__(self):
@@ -35,7 +36,7 @@ class MisArchivos:
                 data = json.loads(base64.urlsafe_b64decode(payload))
                 self.my_email = data.get('upn', '').lower()
                 print(f"[OK] Usuario: {self.my_email}")
-            except:
+            except Exception:
                 print("[ERROR] No se pudo extraer el usuario del token")
                 return False
         return True
@@ -50,14 +51,11 @@ class MisArchivos:
             data = json.loads(base64.urlsafe_b64decode(payload))
             exp = datetime.fromtimestamp(int(data['exp']))
             return datetime.now() < exp
-        except:
+        except Exception:
             return False
 
     def get_headers(self):
-        return {
-            "Authorization": f"Bearer {self.token}",
-            "Accept": "application/json;odata=verbose"
-        }
+        return {"Authorization": f"Bearer {self.token}", "Accept": "application/json;odata=verbose"}
 
     def listar_archivos(self, folder_path=None, mostrar_todos=False, limite=None):
         """
@@ -73,7 +71,7 @@ class MisArchivos:
 
         # Obtener archivos con metadatos expandidos (Author)
         url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_folder}')/Files"
-        url += "?$expand=Author,ListItemAllFields&$select=Name,Length,TimeCreated,Author/Email,Author/Title,ServerRelativeUrl"
+        url += "?$expand=Author,ListItemAllFields&$select=Name,Length,TimeCreated,Author/Email,Author/Title,ServerRelativeUrl"  # noqa: E501
 
         try:
             r = requests.get(url, headers=self.get_headers(), timeout=30)
@@ -99,7 +97,7 @@ class MisArchivos:
                     "autor_email": author_email,
                     "autor_nombre": author_name,
                     "ruta": f.get('ServerRelativeUrl'),
-                    "es_mio": es_mio
+                    "es_mio": es_mio,
                 }
 
                 if es_mio:
@@ -108,9 +106,9 @@ class MisArchivos:
                     otros_archivos.append(file_info)
 
             # Mostrar resultados
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print(f"  ARCHIVOS EN: {folder}")
-            print(f"{'='*60}")
+            print(f"{'=' * 60}")
 
             print(f"\n[MIS ARCHIVOS] ({len(mis_archivos)})")
             print("-" * 60)
@@ -128,7 +126,7 @@ class MisArchivos:
                 if len(otros_archivos) > 10:
                     print(f"  ... y {len(otros_archivos) - 10} mas")
 
-            print(f"\n[RESUMEN]")
+            print("\n[RESUMEN]")
             print(f"  Mis archivos: {len(mis_archivos)}")
             print(f"  De otros: {len(otros_archivos)}")
             print(f"  Total: {len(files)}")
@@ -157,18 +155,18 @@ class MisArchivos:
         page_size = 500  # Lote seguro para evitar throttling
         total_obtenidos = 0
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  LISTANDO (paginado): {folder}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         while total_obtenidos < max_archivos:
             # URL con paginacion
             url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_folder}')/Files"
-            url += f"?$expand=Author&$select=Name,Length,TimeCreated,Author/Email,Author/Title,ServerRelativeUrl"
+            url += "?$expand=Author&$select=Name,Length,TimeCreated,Author/Email,Author/Title,ServerRelativeUrl"
             url += f"&$top={page_size}&$skip={skip}"
 
             try:
-                print(f"\r  Obteniendo archivos {skip+1} - {skip+page_size}...", end="", flush=True)
+                print(f"\r  Obteniendo archivos {skip + 1} - {skip + page_size}...", end="", flush=True)
                 r = requests.get(url, headers=self.get_headers(), timeout=60)
 
                 if r.status_code == 500:
@@ -178,7 +176,7 @@ class MisArchivos:
                         print(f"\n  [THROTTLE] Reduciendo a {page_size} por pagina...")
                         continue
                     else:
-                        print(f"\n  [ERROR] Throttling persistente")
+                        print("\n  [ERROR] Throttling persistente")
                         break
 
                 if r.status_code != 200:
@@ -204,7 +202,7 @@ class MisArchivos:
                         "autor_email": author_email,
                         "autor_nombre": author_name,
                         "ruta": f.get('ServerRelativeUrl'),
-                        "es_mio": es_mio
+                        "es_mio": es_mio,
                     }
 
                     if es_mio:
@@ -247,7 +245,7 @@ class MisArchivos:
             if len(por_autor) > 10:
                 print(f"  ... y {len(por_autor) - 10} autores mas")
 
-        print(f"\n[RESUMEN]")
+        print("\n[RESUMEN]")
         print(f"  Mis archivos: {len(mis_archivos)}")
         print(f"  De otros: {len(otros_archivos)}")
         print(f"  Total escaneados: {total_obtenidos}")
@@ -272,7 +270,7 @@ class MisArchivos:
                 count = data.get('d', {}).get('ItemCount', 0)
                 print(f"[INFO] {folder}: {count} items")
                 return count
-        except:
+        except Exception:
             pass
 
         return 0
@@ -292,9 +290,9 @@ class MisArchivos:
         skip = 0
         page_size = 500
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  LISTADO RAPIDO (sin autor): {folder_path}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         while len(archivos) < max_archivos:
             # URL simple sin $expand=Author
@@ -302,7 +300,7 @@ class MisArchivos:
             url += f"?$select=Name,Length,ServerRelativeUrl&$top={page_size}&$skip={skip}"
 
             try:
-                print(f"\r  Obteniendo {skip+1} - {skip+page_size}...", end="", flush=True)
+                print(f"\r  Obteniendo {skip + 1} - {skip + page_size}...", end="", flush=True)
                 r = requests.get(url, headers=self.get_headers(), timeout=60)
 
                 if r.status_code != 200:
@@ -316,11 +314,9 @@ class MisArchivos:
                     break
 
                 for f in files:
-                    archivos.append({
-                        "nombre": f.get('Name'),
-                        "tamano": f.get('Length', 0),
-                        "ruta": f.get('ServerRelativeUrl')
-                    })
+                    archivos.append(
+                        {"nombre": f.get('Name'), "tamano": f.get('Length', 0), "ruta": f.get('ServerRelativeUrl')}
+                    )
 
                 skip += page_size
 
@@ -334,7 +330,7 @@ class MisArchivos:
         print(f"\r  Total: {len(archivos)} archivos" + " " * 20)
 
         # Mostrar muestra
-        print(f"\n[ARCHIVOS] (primeros 30)")
+        print("\n[ARCHIVOS] (primeros 30)")
         print("-" * 60)
         for f in archivos[:30]:
             tamano_kb = int(f['tamano']) / 1024 if f['tamano'] else 0
@@ -342,8 +338,8 @@ class MisArchivos:
         if len(archivos) > 30:
             print(f"  ... y {len(archivos) - 30} mas")
 
-        print(f"\n[NOTA] Para verificar propiedad de un archivo especifico:")
-        print(f"       Usa la opcion 6 del menu con la ruta completa")
+        print("\n[NOTA] Para verificar propiedad de un archivo especifico:")
+        print("       Usa la opcion 6 del menu con la ruta completa")
 
         return archivos
 
@@ -415,7 +411,7 @@ class MisArchivos:
         es_mio, mensaje = self.verificar_propiedad(file_path)
 
         if not es_mio:
-            print(f"[BLOQUEADO] No puedes eliminar este archivo")
+            print("[BLOQUEADO] No puedes eliminar este archivo")
             print(f"  Razon: {mensaje}")
             return False
 
@@ -485,7 +481,7 @@ class MisArchivos:
         es_mio, mensaje = self.verificar_propiedad(file_path)
 
         if not es_mio:
-            print(f"[BLOQUEADO] No puedes mover este archivo")
+            print("[BLOQUEADO] No puedes mover este archivo")
             print(f"  Razon: {mensaje}")
             return False
 
@@ -495,7 +491,9 @@ class MisArchivos:
         encoded_path = urllib.parse.quote(file_path, safe='/')
         encoded_new = urllib.parse.quote(new_path, safe='/')
 
-        url = f"{CONFIG['base_url']}/GetFileByServerRelativeUrl('{encoded_path}')/MoveTo(newurl='{encoded_new}',flags=1)"
+        url = (
+            f"{CONFIG['base_url']}/GetFileByServerRelativeUrl('{encoded_path}')/MoveTo(newurl='{encoded_new}',flags=1)"
+        )
 
         try:
             r = requests.post(url, headers=self.get_headers(), timeout=30)
@@ -519,10 +517,10 @@ def menu_interactivo():
         return
 
     while True:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("  GESTOR DE MIS ARCHIVOS EN ONEDRIVE")
         print(f"  Usuario: {ma.my_email}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print()
         print("  1. Listar mis archivos (carpetas pequenas)")
         print("  2. Listar subcarpetas")
