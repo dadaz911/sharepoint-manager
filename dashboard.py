@@ -4,34 +4,29 @@ Dashboard Web para Control de Subida a OneDrive
 Flask + Flask-SocketIO para tiempo real
 """
 
-import os
-import sys
-import json
-import time
 import base64
-import signal
+import json
 import logging
-import threading
+import signal
 import subprocess
-from pathlib import Path
-from datetime import datetime, timedelta
+import sys
+import threading
+import time
 from collections import deque
-from typing import Optional, Dict, Any, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, jsonify, render_template, request
 from flask_socketio import SocketIO, emit
 
 # Configuracion de logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%H:%M:%S'
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s', datefmt='%H:%M:%S')
 logger = logging.getLogger(__name__)
 
 # Configuracion hardcodeada
-CONFIG = {
+CONFIG: Dict[str, Any] = {
     "base_url": "https://shdgov-my.sharepoint.com/personal/dzuniga_shd_gov_co1/_api/web",
     "dest_folder": "/personal/dzuniga_shd_gov_co1/Documents/Pruebas",
     "source_dir": "/home/daniel/Desktop/Cargue a Onedrive",
@@ -42,19 +37,19 @@ CONFIG = {
 }
 
 # Configuracion de sitios SharePoint para el explorador
-SHAREPOINT_SITES = {
+SHAREPOINT_SITES: Dict[str, Any] = {
     "personal": {
         "name": "Mi OneDrive",
         "base_url": "https://shdgov-my.sharepoint.com/personal/dzuniga_shd_gov_co1/_api/web",
         "root_folder": "/personal/dzuniga_shd_gov_co1/Documents",
-        "cache_file": ".sharepoint_map.json"
+        "cache_file": ".sharepoint_map.json",
     },
     "oficina": {
         "name": "Oficina Depuración Cartera",
         "base_url": "https://shdgov.sharepoint.com/sites/OficinadeDepuracindeCartera/_api/web",
         "root_folder": "/sites/OficinadeDepuracindeCartera/Documentos compartidos",
-        "cache_file": ".oficina_map.json"
-    }
+        "cache_file": ".oficina_map.json",
+    },
 }
 
 # Rutas de archivos
@@ -67,6 +62,7 @@ HISTORY_FILE = BASE_DIR / ".dashboard_history.json"
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'onedrive-dashboard-secret-2024'
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
 
 # Estado global
 class DashboardState:
@@ -106,24 +102,24 @@ class DashboardState:
         """Guardar historial a archivo"""
         try:
             with open(HISTORY_FILE, 'w') as f:
-                json.dump({
-                    "history": list(self.history)[-180:],
-                    "speed_samples": list(self.speed_samples),
-                    "updated_at": datetime.now().isoformat()
-                }, f)
+                json.dump(
+                    {
+                        "history": list(self.history)[-180:],
+                        "speed_samples": list(self.speed_samples),
+                        "updated_at": datetime.now().isoformat(),
+                    },
+                    f,
+                )
         except Exception as e:
             logger.error(f"Error guardando historial: {e}")
 
     def add_log(self, message: str, level: str = "info"):
         """Agregar entrada al log"""
-        entry = {
-            "timestamp": datetime.now().strftime("%H:%M:%S"),
-            "message": message,
-            "level": level
-        }
+        entry = {"timestamp": datetime.now().strftime("%H:%M:%S"), "message": message, "level": level}
         self.logs.append(entry)
         socketio.emit('log_event', entry)
         logger.log(getattr(logging, level.upper(), logging.INFO), message)
+
 
 state = DashboardState()
 
@@ -133,9 +129,10 @@ state = DashboardState()
 
 UPLOAD_LOG_FILE = Path("/tmp/upload_paralelo.log")
 
+
 def get_upload_log_progress() -> Dict[str, Any]:
     """Lee el log del proceso de subida para obtener progreso en tiempo real"""
-    result = {"uploaded": 0, "speed": 0, "percentage": 0, "new_count": 0}
+    result: Dict[str, Any] = {"uploaded": 0, "speed": 0, "percentage": 0, "new_count": 0}
 
     if not UPLOAD_LOG_FILE.exists():
         return result
@@ -151,6 +148,7 @@ def get_upload_log_progress() -> Dict[str, Any]:
 
         # Buscar el ultimo patron [XXXXX/92579] en el log
         import re
+
         matches = re.findall(r'\[(\d+)/(\d+)\]\s+(\d+\.?\d*)%\s+\|\s+(\d+)/min', content)
 
         if matches:
@@ -186,11 +184,7 @@ def get_token_info() -> Dict[str, Any]:
         exp = datetime.fromtimestamp(int(data['exp']))
         remaining = (exp - datetime.now()).total_seconds() / 60
 
-        return {
-            "valid": remaining > 5,
-            "minutes_remaining": max(0, remaining),
-            "expires_at": exp.strftime("%H:%M:%S")
-        }
+        return {"valid": remaining > 5, "minutes_remaining": max(0, remaining), "expires_at": exp.strftime("%H:%M:%S")}
     except Exception as e:
         logger.error(f"Error leyendo token: {e}")
         return {"valid": False, "minutes_remaining": 0, "expires_at": None}
@@ -199,13 +193,7 @@ def get_token_info() -> Dict[str, Any]:
 def get_progress() -> Dict[str, Any]:
     """Obtener progreso de subida"""
     if not PROGRESS_FILE.exists():
-        return {
-            "uploaded": 0,
-            "errors": 0,
-            "total": CONFIG["total_files"],
-            "percentage": 0,
-            "error_list": []
-        }
+        return {"uploaded": 0, "errors": 0, "total": CONFIG["total_files"], "percentage": 0, "error_list": []}
 
     try:
         with open(PROGRESS_FILE) as f:
@@ -224,7 +212,7 @@ def get_progress() -> Dict[str, Any]:
             "percentage": round((uploaded / total) * 100, 2) if total > 0 else 0,
             "error_list": errors[-50:],  # ultimos 50 errores
             "uploaded_set": set(uploaded_list),  # set para comparacion rapida
-            "errors_set": set(e.get("file", "") for e in errors)  # set de archivos con error
+            "errors_set": {e.get("file", "") for e in errors},  # set de archivos con error
         }
     except Exception as e:
         logger.error(f"Error leyendo progreso: {e}")
@@ -235,7 +223,7 @@ def get_progress() -> Dict[str, Any]:
             "percentage": 0,
             "error_list": [],
             "uploaded_set": set(),
-            "errors_set": set()
+            "errors_set": set(),
         }
 
 
@@ -280,9 +268,10 @@ def check_chrome_cdp() -> bool:
     """Verificar si Chrome CDP esta disponible"""
     try:
         import requests
+
         r = requests.get(f"http://localhost:{CONFIG['cdp_port']}/json/version", timeout=2)
         return r.status_code == 200
-    except:
+    except Exception:
         return False
 
 
@@ -290,10 +279,12 @@ def check_chrome_cdp() -> bool:
 # Funciones del Explorador SharePoint
 # =============================================================================
 
+
 def explore_sharepoint_folder(site_key: str, folder_path: str) -> Dict[str, Any]:
     """Explorar una carpeta de SharePoint y obtener su contenido"""
-    import requests
     import urllib.parse
+
+    import requests
 
     if site_key not in SHAREPOINT_SITES:
         return {"error": f"Sitio no encontrado: {site_key}"}
@@ -306,20 +297,17 @@ def explore_sharepoint_folder(site_key: str, folder_path: str) -> Dict[str, Any]
         return {"error": "Token no disponible"}
 
     token = TOKEN_FILE.read_text().strip()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json;odata=verbose"
-    }
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json;odata=verbose"}
 
     encoded_folder = urllib.parse.quote(folder_path, safe='/')
-    resultado = {
+    resultado: Dict[str, Any] = {
         "path": folder_path,
         "site": site_key,
         "site_name": site["name"],
         "folders": [],
         "files": [],
         "file_count": 0,
-        "total_size": 0
+        "total_size": 0,
     }
 
     # Obtener subcarpetas
@@ -334,11 +322,9 @@ def explore_sharepoint_folder(site_key: str, folder_path: str) -> Dict[str, Any]
             for f in folders:
                 name = f.get('Name', '')
                 if not name.startswith('_'):
-                    resultado["folders"].append({
-                        "name": name,
-                        "path": f.get('ServerRelativeUrl'),
-                        "item_count": f.get('ItemCount', 0)
-                    })
+                    resultado["folders"].append(
+                        {"name": name, "path": f.get('ServerRelativeUrl'), "item_count": f.get('ItemCount', 0)}
+                    )
         elif r.status_code == 401:
             return {"error": "Token expirado o inválido"}
     except Exception as e:
@@ -356,13 +342,15 @@ def explore_sharepoint_folder(site_key: str, folder_path: str) -> Dict[str, Any]
             files = data.get('d', {}).get('results', [])
             for f in files:
                 size = int(f.get('Length', 0))
-                resultado["files"].append({
-                    "name": f.get('Name'),
-                    "size": size,
-                    "size_formatted": format_file_size(size),
-                    "modified": f.get('TimeLastModified'),
-                    "path": f.get('ServerRelativeUrl')
-                })
+                resultado["files"].append(
+                    {
+                        "name": f.get('Name'),
+                        "size": size,
+                        "size_formatted": format_file_size(size),
+                        "modified": f.get('TimeLastModified'),
+                        "path": f.get('ServerRelativeUrl'),
+                    }
+                )
                 resultado["total_size"] += size
             resultado["file_count"] = len(files)
         elif r.status_code == 500:
@@ -401,8 +389,9 @@ def get_sharepoint_file_url(site_key: str, file_path: str) -> Optional[str]:
 
 def get_file_details(site_key: str, file_path: str) -> Dict[str, Any]:
     """Obtener detalles completos de un archivo"""
-    import requests
     import urllib.parse
+
+    import requests
 
     if site_key not in SHAREPOINT_SITES:
         return {"error": f"Sitio no encontrado: {site_key}"}
@@ -414,14 +403,11 @@ def get_file_details(site_key: str, file_path: str) -> Dict[str, Any]:
         return {"error": "Token no disponible"}
 
     token = TOKEN_FILE.read_text().strip()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json;odata=verbose"
-    }
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json;odata=verbose"}
 
     encoded_path = urllib.parse.quote(file_path, safe='/')
     url = f"{base_url}/GetFileByServerRelativeUrl('{encoded_path}')"
-    url += "?$select=Name,Length,TimeCreated,TimeLastModified,ServerRelativeUrl,CheckOutType,MajorVersion,MinorVersion,UIVersionLabel,Author/Title,ModifiedBy/Title"
+    url += "?$select=Name,Length,TimeCreated,TimeLastModified,ServerRelativeUrl,CheckOutType,MajorVersion,MinorVersion,UIVersionLabel,Author/Title,ModifiedBy/Title"  # noqa: E501
     url += "&$expand=Author,ModifiedBy"
 
     try:
@@ -445,7 +431,7 @@ def get_file_details(site_key: str, file_path: str) -> Dict[str, Any]:
                 "modified_by": data.get('ModifiedBy', {}).get('Title', 'Desconocido'),
                 "version": data.get('UIVersionLabel', '1.0'),
                 "site": site_key,
-                "site_name": site["name"]
+                "site_name": site["name"],
             }
         elif r.status_code == 401:
             return {"error": "Token expirado"}
@@ -457,8 +443,9 @@ def get_file_details(site_key: str, file_path: str) -> Dict[str, Any]:
 
 def get_folder_details(site_key: str, folder_path: str) -> Dict[str, Any]:
     """Obtener detalles completos de una carpeta"""
-    import requests
     import urllib.parse
+
+    import requests
 
     if site_key not in SHAREPOINT_SITES:
         return {"error": f"Sitio no encontrado: {site_key}"}
@@ -470,10 +457,7 @@ def get_folder_details(site_key: str, folder_path: str) -> Dict[str, Any]:
         return {"error": "Token no disponible"}
 
     token = TOKEN_FILE.read_text().strip()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json;odata=verbose"
-    }
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json;odata=verbose"}
 
     encoded_path = urllib.parse.quote(folder_path, safe='/')
     url = f"{base_url}/GetFolderByServerRelativeUrl('{encoded_path}')"
@@ -502,7 +486,7 @@ def get_folder_details(site_key: str, folder_path: str) -> Dict[str, Any]:
                 "created": data.get('TimeCreated'),
                 "modified": data.get('TimeLastModified'),
                 "site": site_key,
-                "site_name": site["name"]
+                "site_name": site["name"],
             }
         elif r.status_code == 401:
             return {"error": "Token expirado"}
@@ -514,8 +498,9 @@ def get_folder_details(site_key: str, folder_path: str) -> Dict[str, Any]:
 
 def list_folder_files_recursive(site_key: str, folder_path: str, max_files: int = 500) -> List[Dict]:
     """Listar todos los archivos de una carpeta recursivamente"""
-    import requests
     import urllib.parse
+
+    import requests
 
     if site_key not in SHAREPOINT_SITES:
         return []
@@ -527,12 +512,9 @@ def list_folder_files_recursive(site_key: str, folder_path: str, max_files: int 
         return []
 
     token = TOKEN_FILE.read_text().strip()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json;odata=verbose"
-    }
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json;odata=verbose"}
 
-    all_files = []
+    all_files: List[Dict[str, Any]] = []
 
     def explore_recursive(path: str, depth: int = 0):
         if len(all_files) >= max_files or depth > 5:
@@ -551,12 +533,10 @@ def list_folder_files_recursive(site_key: str, folder_path: str, max_files: int 
                 for f in files:
                     if len(all_files) >= max_files:
                         break
-                    all_files.append({
-                        "name": f.get('Name'),
-                        "size": int(f.get('Length', 0)),
-                        "path": f.get('ServerRelativeUrl')
-                    })
-        except:
+                    all_files.append(
+                        {"name": f.get('Name'), "size": int(f.get('Length', 0)), "path": f.get('ServerRelativeUrl')}
+                    )
+        except Exception:
             pass
 
         # Obtener subcarpetas y explorar
@@ -571,7 +551,7 @@ def list_folder_files_recursive(site_key: str, folder_path: str, max_files: int 
                     name = folder.get('Name', '')
                     if not name.startswith('_') and len(all_files) < max_files:
                         explore_recursive(folder.get('ServerRelativeUrl'), depth + 1)
-        except:
+        except Exception:
             pass
 
     explore_recursive(folder_path)
@@ -587,7 +567,7 @@ def get_token_expiration(token: str) -> int:
         payload = parts[1] + '=' * (4 - len(parts[1]) % 4)
         data = json.loads(base64.urlsafe_b64decode(payload))
         return int(data.get('exp', 0))
-    except:
+    except Exception:
         return 0
 
 
@@ -620,11 +600,7 @@ def refresh_token_cdp() -> bool:
             tab = tabs[0]
             # Navegar a OneDrive
             ws = websocket.create_connection(tab["webSocketDebuggerUrl"], timeout=10)
-            ws.send(json.dumps({
-                "id": 1,
-                "method": "Page.navigate",
-                "params": {"url": CONFIG["onedrive_url"]}
-            }))
+            ws.send(json.dumps({"id": 1, "method": "Page.navigate", "params": {"url": CONFIG["onedrive_url"]}}))
             ws.recv()
             ws.close()
             time.sleep(8)
@@ -654,11 +630,11 @@ def refresh_token_cdp() -> bool:
             return deleted;
         })()
         """
-        ws.send(json.dumps({
-            "id": 1,
-            "method": "Runtime.evaluate",
-            "params": {"expression": js_delete, "returnByValue": True}
-        }))
+        ws.send(
+            json.dumps(
+                {"id": 1, "method": "Runtime.evaluate", "params": {"expression": js_delete, "returnByValue": True}}
+            )
+        )
         ws.recv()
 
         # PASO 2: Recargar página (SharePoint generará nuevo token)
@@ -685,11 +661,11 @@ def refresh_token_cdp() -> bool:
         })()
         """
 
-        ws.send(json.dumps({
-            "id": 3,
-            "method": "Runtime.evaluate",
-            "params": {"expression": js_extract, "returnByValue": True}
-        }))
+        ws.send(
+            json.dumps(
+                {"id": 3, "method": "Runtime.evaluate", "params": {"expression": js_extract, "returnByValue": True}}
+            )
+        )
 
         response = json.loads(ws.recv())
         ws.close()
@@ -721,6 +697,7 @@ def refresh_token_cdp() -> bool:
 # Thread de monitoreo
 # =============================================================================
 
+
 def monitor_loop():
     """Loop de monitoreo que emite actualizaciones via WebSocket"""
     state.add_log("Monitor iniciado", "info")
@@ -739,11 +716,17 @@ def monitor_loop():
                 # Detectar archivos nuevos basandose en el conteo del log
                 if state.last_log_uploaded == 0:
                     # Primera vez que detectamos progreso - registrar inicio
-                    state.add_log(f"Detectado proceso de subida: {log_progress['uploaded']:,}/{log_progress.get('total', 92579):,} archivos", "info")
+                    state.add_log(
+                        f"Detectado proceso de subida: {log_progress['uploaded']:,}/{log_progress.get('total', 92579):,} archivos",  # noqa: E501
+                        "info",
+                    )
                     state.last_log_uploaded = log_progress["uploaded"]
                 elif log_progress["uploaded"] < state.last_log_uploaded:
                     # El proceso se reinicio - el log empezo de nuevo
-                    state.add_log(f"Proceso reiniciado - ahora en: {log_progress['uploaded']:,}/{log_progress.get('total', 92579):,}", "info")
+                    state.add_log(
+                        f"Proceso reiniciado - ahora en: {log_progress['uploaded']:,}/{log_progress.get('total', 92579):,}",  # noqa: E501
+                        "info",
+                    )
                     state.last_log_uploaded = log_progress["uploaded"]
                 elif log_progress["uploaded"] > state.last_log_uploaded:
                     new_count = log_progress["uploaded"] - state.last_log_uploaded
@@ -752,7 +735,10 @@ def monitor_loop():
                         for i in range(new_count):
                             state.add_log(f"Archivo #{log_progress['uploaded'] - new_count + i + 1} subido", "upload")
                     else:
-                        state.add_log(f"+{new_count} archivos subidos ({log_progress['uploaded']:,}/{log_progress.get('total', 92579):,})", "upload")
+                        state.add_log(
+                            f"+{new_count} archivos subidos ({log_progress['uploaded']:,}/{log_progress.get('total', 92579):,})",  # noqa: E501
+                            "upload",
+                        )
                     # Actualizar conteo para el proximo ciclo
                     state.last_log_uploaded = log_progress["uploaded"]
 
@@ -784,7 +770,7 @@ def monitor_loop():
                 "timestamp": datetime.now().isoformat(),
                 "uploaded": progress["uploaded"],
                 "speed": speed,
-                "errors": progress["errors"]
+                "errors": progress["errors"],
             }
             state.history.append(history_entry)
             state.history = state.history[-180:]  # mantener ultimos 30 min
@@ -792,12 +778,9 @@ def monitor_loop():
             # Detectar si hay proceso externo corriendo
             external_process = False
             try:
-                result = subprocess.run(
-                    ['pgrep', '-f', 'subir_paralelo.py'],
-                    capture_output=True, text=True
-                )
+                result = subprocess.run(['pgrep', '-f', 'subir_paralelo.py'], capture_output=True, text=True)
                 external_process = result.returncode == 0 and bool(result.stdout.strip())
-            except:
+            except Exception:
                 pass
 
             # Construir status (excluir sets que no son JSON serializable)
@@ -811,7 +794,7 @@ def monitor_loop():
                 "external_process": external_process,
                 "threads": state.config["threads"],
                 "chrome_cdp": check_chrome_cdp(),
-                "timestamp": datetime.now().strftime("%H:%M:%S")
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
             }
 
             # Emitir actualizacion
@@ -822,7 +805,9 @@ def monitor_loop():
             if state.config["auto_refresh_token"] and token_info["minutes_remaining"] < 10:
                 time_since_last = time.time() - state.last_refresh_attempt
                 if time_since_last >= REFRESH_COOLDOWN and token_info["minutes_remaining"] > 0:
-                    state.add_log(f"Token por expirar ({token_info['minutes_remaining']:.0f} min), refrescando...", "warning")
+                    state.add_log(
+                        f"Token por expirar ({token_info['minutes_remaining']:.0f} min), refrescando...", "warning"
+                    )
                     state.last_refresh_attempt = time.time()
                     refresh_token_cdp()
 
@@ -871,6 +856,7 @@ def stop_monitor():
 # API REST
 # =============================================================================
 
+
 @app.route('/')
 def index():
     """Pagina principal"""
@@ -901,7 +887,7 @@ def api_status():
     try:
         result = subprocess.run(['pgrep', '-f', 'subir_paralelo.py'], capture_output=True, text=True)
         external_running = result.returncode == 0 and bool(result.stdout.strip())
-    except:
+    except Exception:
         pass
 
     is_running = state.is_running or external_running
@@ -909,16 +895,18 @@ def api_status():
     remaining_files = progress_for_client["total"] - progress_for_client["uploaded"]
     eta_minutes = remaining_files / speed if speed > 0 else 0
 
-    return jsonify({
-        "progress": progress_for_client,
-        "token": token_info,
-        "speed": speed,
-        "eta_minutes": round(eta_minutes, 0),
-        "is_running": is_running,
-        "threads": state.config["threads"],
-        "chrome_cdp": check_chrome_cdp(),
-        "config": CONFIG
-    })
+    return jsonify(
+        {
+            "progress": progress_for_client,
+            "token": token_info,
+            "speed": speed,
+            "eta_minutes": round(eta_minutes, 0),
+            "is_running": is_running,
+            "threads": state.config["threads"],
+            "chrome_cdp": check_chrome_cdp(),
+            "config": CONFIG,
+        }
+    )
 
 
 @app.route('/api/start', methods=['POST'])
@@ -947,7 +935,7 @@ def api_start():
             stderr=subprocess.STDOUT,
             cwd=str(BASE_DIR),
             text=True,
-            bufsize=1
+            bufsize=1,
         )
 
         # Enviar numero de hilos
@@ -1007,20 +995,19 @@ def api_history():
             if hour_key not in hourly:
                 hourly[hour_key] = {"start": entry["uploaded"], "end": entry["uploaded"]}
             hourly[hour_key]["end"] = entry["uploaded"]
-        except:
+        except Exception:
             pass
 
     hourly_data = []
     for hour, data in sorted(hourly.items()):
-        hourly_data.append({
-            "hour": hour,
-            "count": max(0, data["end"] - data["start"])
-        })
+        hourly_data.append({"hour": hour, "count": max(0, data["end"] - data["start"])})
 
-    return jsonify({
-        "timeline": state.history[-90:],  # ultimos 15 min
-        "hourly": hourly_data[-12:]  # ultimas 12 horas
-    })
+    return jsonify(
+        {
+            "timeline": state.history[-90:],  # ultimos 15 min
+            "hourly": hourly_data[-12:],  # ultimas 12 horas
+        }
+    )
 
 
 @app.route('/api/token/refresh', methods=['POST'])
@@ -1029,10 +1016,7 @@ def api_token_refresh():
     state.add_log("Refresh de token solicitado", "info")
     success = refresh_token_cdp()
     token_info = get_token_info()
-    return jsonify({
-        "success": success,
-        "token": token_info
-    })
+    return jsonify({"success": success, "token": token_info})
 
 
 @app.route('/api/config', methods=['GET', 'POST'])
@@ -1052,20 +1036,17 @@ def api_config():
 def is_upload_process_running() -> bool:
     """Verificar si hay un proceso de subida corriendo (interno o externo)"""
     # Verificar proceso interno del dashboard
-    if state.is_running and state.upload_process:
-        if state.upload_process.poll() is None:
-            return True
+    if state.is_running and state.upload_process and state.upload_process.poll() is None:
+        return True
 
     # Verificar procesos externos (subir_paralelo.py lanzado desde terminal)
     try:
         import subprocess
-        result = subprocess.run(
-            ['pgrep', '-f', 'subir_paralelo.py'],
-            capture_output=True, text=True
-        )
+
+        result = subprocess.run(['pgrep', '-f', 'subir_paralelo.py'], capture_output=True, text=True)
         if result.returncode == 0 and result.stdout.strip():
             return True
-    except:
+    except Exception:
         pass
 
     return False
@@ -1076,10 +1057,12 @@ def api_retry_errors():
     """Limpiar errores para reintentar"""
     # IMPORTANTE: No modificar JSON si hay un proceso de subida activo
     if is_upload_process_running():
-        return jsonify({
-            "success": False,
-            "error": "No se puede reintentar mientras hay una subida activa. Detén el proceso primero."
-        })
+        return jsonify(
+            {
+                "success": False,
+                "error": "No se puede reintentar mientras hay una subida activa. Detén el proceso primero.",
+            }
+        )
 
     if not PROGRESS_FILE.exists():
         return jsonify({"success": False, "error": "No hay archivo de progreso"})
@@ -1104,16 +1087,13 @@ def api_retry_errors():
 # API REST - Explorador SharePoint
 # =============================================================================
 
+
 @app.route('/api/explorer/sites')
 def api_explorer_sites():
     """Obtener lista de sitios disponibles"""
     sites = []
     for key, site in SHAREPOINT_SITES.items():
-        sites.append({
-            "key": key,
-            "name": site["name"],
-            "root_folder": site["root_folder"]
-        })
+        sites.append({"key": key, "name": site["name"], "root_folder": site["root_folder"]})
     return jsonify({"sites": sites})
 
 
@@ -1160,27 +1140,25 @@ def api_explorer_download():
         return jsonify({"error": "No se pudo generar URL de descarga"})
 
     # Hacer la descarga y pasarla al cliente
-    headers = {
-        "Authorization": f"Bearer {token}"
-    }
+    headers = {"Authorization": f"Bearer {token}"}
 
     try:
         r = req.get(download_url, headers=headers, stream=True, timeout=60)
         if r.status_code == 200:
             from flask import Response
+
             filename = file_path.split('/')[-1]
 
             def generate():
-                for chunk in r.iter_content(chunk_size=8192):
-                    yield chunk
+                yield from r.iter_content(chunk_size=8192)
 
             return Response(
                 generate(),
                 mimetype='application/octet-stream',
                 headers={
                     'Content-Disposition': f'attachment; filename="{filename}"',
-                    'Content-Length': r.headers.get('content-length', '')
-                }
+                    'Content-Length': r.headers.get('content-length', ''),
+                },
             )
         elif r.status_code == 401:
             return jsonify({"error": "Token expirado"})
@@ -1219,32 +1197,27 @@ def api_explorer_search():
             # Buscar en archivos
             for f in data.get("files", []):
                 if term in f["name"].lower():
-                    resultados.append({
-                        "tipo": "archivo",
-                        "nombre": f["name"],
-                        "ruta": f["path"],
-                        "tamano": f.get("size", 0)
-                    })
+                    resultados.append(
+                        {"tipo": "archivo", "nombre": f["name"], "ruta": f["path"], "tamano": f.get("size", 0)}
+                    )
             # Buscar en carpetas
             for folder in data.get("folders", []):
                 if term in folder["name"].lower():
-                    resultados.append({
-                        "tipo": "carpeta",
-                        "nombre": folder["name"],
-                        "ruta": folder["path"]
-                    })
+                    resultados.append({"tipo": "carpeta", "nombre": folder["name"], "ruta": folder["path"]})
                 if folder.get("contenido"):
                     buscar_recursivo(folder["contenido"])
 
         for folder_data in mapa.get("folders", {}).values():
             buscar_recursivo(folder_data)
 
-        return jsonify({
-            "term": term,
-            "site": site_key,
-            "count": len(resultados),
-            "results": resultados[:50]  # Limitar a 50 resultados
-        })
+        return jsonify(
+            {
+                "term": term,
+                "site": site_key,
+                "count": len(resultados),
+                "results": resultados[:50],  # Limitar a 50 resultados
+            }
+        )
     except Exception as e:
         return jsonify({"error": str(e)})
 
@@ -1259,10 +1232,7 @@ def api_explorer_details():
     if not path:
         return jsonify({"error": "Ruta no especificada"})
 
-    if item_type == 'folder':
-        result = get_folder_details(site_key, path)
-    else:
-        result = get_file_details(site_key, path)
+    result = get_folder_details(site_key, path) if item_type == 'folder' else get_file_details(site_key, path)
 
     return jsonify(result)
 
@@ -1270,6 +1240,7 @@ def api_explorer_details():
 # =============================================================================
 # FUNCIONES DE DESCARGA PARALELA
 # =============================================================================
+
 
 def download_single_file(file_info: dict, folder_path: str, headers: dict, site_key: str) -> tuple:
     """Descargar un archivo individual (usado por ThreadPoolExecutor)"""
@@ -1292,8 +1263,9 @@ def download_single_file(file_info: dict, folder_path: str, headers: dict, site_
         return (relative_path, None, str(e))
 
 
-def download_file_chunked(download_url: str, headers: dict, file_size: int,
-                          chunk_size: int = 10 * 1024 * 1024, max_workers: int = 4) -> bytes:
+def download_file_chunked(
+    download_url: str, headers: dict, file_size: int, chunk_size: int = 10 * 1024 * 1024, max_workers: int = 4
+) -> bytes:
     """Descargar un archivo grande en chunks paralelos usando Range headers"""
     import requests as req
 
@@ -1341,33 +1313,25 @@ def download_file_chunked(download_url: str, headers: dict, file_size: int,
     return bytes(result)
 
 
-def download_files_parallel(files: list, folder_path: str, headers: dict,
-                           site_key: str, max_workers: int = 4) -> dict:
+def download_files_parallel(files: list, folder_path: str, headers: dict, site_key: str, max_workers: int = 4) -> dict:
     """Descargar multiples archivos en paralelo"""
-    results = {
+    results: Dict[str, Any] = {
         "downloaded": [],
         "failed": [],
-        "data": {}  # relative_path -> bytes
+        "data": {},  # relative_path -> bytes
     }
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(download_single_file, f, folder_path, headers, site_key): f
-            for f in files
-        }
+        futures = {executor.submit(download_single_file, f, folder_path, headers, site_key): f for f in files}
 
         for future in as_completed(futures):
-            file_info = futures[future]
             relative_path, content, error = future.result()
 
             if content:
                 results["downloaded"].append(relative_path)
                 results["data"][relative_path] = content
             else:
-                results["failed"].append({
-                    "path": relative_path,
-                    "error": error
-                })
+                results["failed"].append({"path": relative_path, "error": error})
 
     return results
 
@@ -1375,8 +1339,8 @@ def download_files_parallel(files: list, folder_path: str, headers: dict,
 @app.route('/api/explorer/download-folder')
 def api_explorer_download_folder():
     """Descargar una carpeta completa como ZIP (con descarga paralela)"""
-    import zipfile
     import io
+    import zipfile
 
     site_key = request.args.get('site', 'personal')
     folder_path = request.args.get('path', '')
@@ -1406,9 +1370,7 @@ def api_explorer_download_folder():
     try:
         # Descargar archivos en paralelo
         logger.info(f"Descargando {len(files)} archivos con {threads} hilos...")
-        download_results = download_files_parallel(
-            files, folder_path, headers, site_key, max_workers=threads
-        )
+        download_results = download_files_parallel(files, folder_path, headers, site_key, max_workers=threads)
 
         # Crear ZIP en memoria con los archivos descargados
         zip_buffer = io.BytesIO()
@@ -1425,13 +1387,14 @@ def api_explorer_download_folder():
         logger.info(f"ZIP creado: {success_count} archivos OK, {fail_count} fallidos")
 
         from flask import Response
+
         return Response(
             zip_buffer.getvalue(),
             mimetype='application/zip',
             headers={
                 'Content-Disposition': f'attachment; filename="{folder_name}.zip"',
-                'Content-Length': len(zip_buffer.getvalue())
-            }
+                'Content-Length': len(zip_buffer.getvalue()),
+            },
         )
 
     except Exception as e:
@@ -1452,14 +1415,16 @@ def api_explorer_folder_contents():
     files = list_folder_files_recursive(site_key, folder_path, max_files=max_files)
     total_size = sum(f.get('size', 0) for f in files)
 
-    return jsonify({
-        "path": folder_path,
-        "site": site_key,
-        "file_count": len(files),
-        "total_size": total_size,
-        "total_size_formatted": format_file_size(total_size),
-        "files": files
-    })
+    return jsonify(
+        {
+            "path": folder_path,
+            "site": site_key,
+            "file_count": len(files),
+            "total_size": total_size,
+            "total_size_formatted": format_file_size(total_size),
+            "files": files,
+        }
+    )
 
 
 @app.route('/api/explorer/download-file-chunked')
@@ -1495,18 +1460,19 @@ def api_explorer_download_file_chunked():
         head_response = req.head(download_url, headers=headers, timeout=30)
         if head_response.status_code != 200:
             # Fallback: descargar completo si HEAD no funciona
-            logger.info(f"HEAD no disponible, descargando archivo completo...")
+            logger.info("HEAD no disponible, descargando archivo completo...")
             r = req.get(download_url, headers=headers, timeout=300)
             if r.status_code == 200:
                 file_name = file_path.split('/')[-1]
                 from flask import Response
+
                 return Response(
                     r.content,
                     mimetype='application/octet-stream',
                     headers={
                         'Content-Disposition': f'attachment; filename="{file_name}"',
-                        'Content-Length': len(r.content)
-                    }
+                        'Content-Length': len(r.content),
+                    },
                 )
             else:
                 return jsonify({"error": f"Error descargando archivo: HTTP {r.status_code}"})
@@ -1520,30 +1486,28 @@ def api_explorer_download_file_chunked():
             r = req.get(download_url, headers=headers, timeout=300)
             if r.status_code == 200:
                 from flask import Response
+
                 return Response(
                     r.content,
                     mimetype='application/octet-stream',
                     headers={
                         'Content-Disposition': f'attachment; filename="{file_name}"',
-                        'Content-Length': len(r.content)
-                    }
+                        'Content-Length': len(r.content),
+                    },
                 )
             else:
                 return jsonify({"error": f"Error descargando archivo: HTTP {r.status_code}"})
 
         # Para archivos grandes, usar chunks paralelos
         logger.info(f"Descargando archivo grande ({format_file_size(file_size)}) con {threads} hilos...")
-        content = download_file_chunked(download_url, headers, file_size,
-                                        chunk_size=chunk_size, max_workers=threads)
+        content = download_file_chunked(download_url, headers, file_size, chunk_size=chunk_size, max_workers=threads)
 
         from flask import Response
+
         return Response(
             content,
             mimetype='application/octet-stream',
-            headers={
-                'Content-Disposition': f'attachment; filename="{file_name}"',
-                'Content-Length': len(content)
-            }
+            headers={'Content-Disposition': f'attachment; filename="{file_name}"', 'Content-Length': len(content)},
         )
 
     except Exception as e:
@@ -1555,6 +1519,7 @@ def api_explorer_download_file_chunked():
 # WebSocket events
 # =============================================================================
 
+
 @socketio.on('connect')
 def handle_connect():
     """Cliente conectado"""
@@ -1563,16 +1528,19 @@ def handle_connect():
     progress = get_progress()
     progress_for_client = {k: v for k, v in progress.items() if not k.endswith('_set')}
     token_info = get_token_info()
-    emit('status_update', {
-        "progress": progress_for_client,
-        "token": token_info,
-        "speed": calculate_speed(),
-        "is_running": state.is_running,
-        "threads": state.config["threads"],
-        "chrome_cdp": check_chrome_cdp(),
-        "timestamp": datetime.now().strftime("%H:%M:%S"),
-        "logs": list(state.logs)  # Enviar logs existentes al conectar
-    })
+    emit(
+        'status_update',
+        {
+            "progress": progress_for_client,
+            "token": token_info,
+            "speed": calculate_speed(),
+            "is_running": state.is_running,
+            "threads": state.config["threads"],
+            "chrome_cdp": check_chrome_cdp(),
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "logs": list(state.logs),  # Enviar logs existentes al conectar
+        },
+    )
 
 
 @socketio.on('disconnect')
@@ -1591,21 +1559,25 @@ def handle_request_status():
     remaining_files = progress["total"] - progress["uploaded"]
     eta_minutes = remaining_files / speed if speed > 0 else 0
 
-    emit('status_update', {
-        "progress": progress_for_client,
-        "token": token_info,
-        "speed": speed,
-        "eta_minutes": round(eta_minutes, 0),
-        "is_running": state.is_running,
-        "threads": state.config["threads"],
-        "chrome_cdp": check_chrome_cdp(),
-        "timestamp": datetime.now().strftime("%H:%M:%S")
-    })
+    emit(
+        'status_update',
+        {
+            "progress": progress_for_client,
+            "token": token_info,
+            "speed": speed,
+            "eta_minutes": round(eta_minutes, 0),
+            "is_running": state.is_running,
+            "threads": state.config["threads"],
+            "chrome_cdp": check_chrome_cdp(),
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+        },
+    )
 
 
 # =============================================================================
 # Cleanup y signal handlers
 # =============================================================================
+
 
 def cleanup():
     """Limpieza al salir"""
@@ -1617,7 +1589,7 @@ def cleanup():
         state.upload_process.terminate()
         try:
             state.upload_process.wait(timeout=5)
-        except:
+        except Exception:
             state.upload_process.kill()
 
 
@@ -1645,7 +1617,7 @@ if __name__ == '__main__':
     print("  ONEDRIVE UPLOAD DASHBOARD")
     print("=" * 60)
     print()
-    print(f"  URL: http://localhost:5000")
+    print("  URL: http://localhost:5000")
     print(f"  Total archivos: {CONFIG['total_files']:,}")
     print(f"  Chrome CDP: puerto {CONFIG['cdp_port']}")
     print()
@@ -1660,6 +1632,7 @@ if __name__ == '__main__':
     except Exception as e:
         logger.error(f"Error iniciando servidor: {e}")
         import traceback
+
         traceback.print_exc()
     finally:
         cleanup()

@@ -1,7 +1,7 @@
 #!/bin/bash
 # run-upload.sh — corre el cargue masivo EN carbon, detached y resumible.
 # Mantiene el token fresco jalándolo del Pi cada 10 min y corre subir_masivo.py.
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 set -a; . ./upload.env; set +a
 
 # Loop que refresca el token (lo redime el Pi; carbon solo lo jala).

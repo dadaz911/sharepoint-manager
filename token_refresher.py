@@ -20,8 +20,17 @@ Config por entorno (defaults para el tenant SHD):
   SPM_DELIVER_HOST (host destino, ej. "gold"; vacío = no entregar) y SPM_DELIVER_PATH
   (ruta remota, default = misma ruta canónica) — entrega el token vía rsync.
 """
-import os, sys, time, json, base64, subprocess, datetime, urllib.parse
+
+import base64
+import datetime
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.parse
 from pathlib import Path
+
 import requests
 
 
@@ -46,7 +55,7 @@ def _load_config_env():
             if not line or line.startswith("#"):
                 continue
             if line.startswith("export "):
-                line = line[len("export "):]
+                line = line[len("export ") :]
             if "=" not in line:
                 continue
             key, val = line.split("=", 1)
@@ -54,27 +63,28 @@ def _load_config_env():
             val = val.strip().split(" #", 1)[0].strip()  # quita comentario en línea
             if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
                 val = val[1:-1]
-            if key and key not in os.environ:      # el entorno real siempre gana
+            if key and key not in os.environ:  # el entorno real siempre gana
                 os.environ[key] = val
         break  # primer config.env encontrado gana
 
 
 _load_config_env()
 
-TENANT   = os.environ.get("TENANT", "cd422ec3-3717-412e-ba56-3bdab9a2f7ef")
-CLIENT   = os.environ.get("CLIENT_ID", "d3590ed6-52b3-4102-aeff-aad2292ab01c")  # MS Office (público)
-SCOPE    = os.environ.get("SCOPE", "https://shdgov-my.sharepoint.com/.default offline_access")
-AUTH     = f"https://login.microsoftonline.com/{TENANT}/oauth2/v2.0"
+TENANT = os.environ.get("TENANT", "cd422ec3-3717-412e-ba56-3bdab9a2f7ef")
+CLIENT = os.environ.get("CLIENT_ID", "d3590ed6-52b3-4102-aeff-aad2292ab01c")  # MS Office (público)
+SCOPE = os.environ.get("SCOPE", "https://shdgov-my.sharepoint.com/.default offline_access")
+AUTH = f"https://login.microsoftonline.com/{TENANT}/oauth2/v2.0"
 TOKEN_FILE = Path(os.environ.get("TOKEN_FILE", "/home/daniel/Desktop/Cargue a Onedrive/.token"))
-RT_FILE  = Path(os.environ.get("RT_FILE", str(Path.home() / ".config/sharepoint-manager/refresh_token")))
+RT_FILE = Path(os.environ.get("RT_FILE", str(Path.home() / ".config/sharepoint-manager/refresh_token")))
 PERSONAL = os.environ.get("PERSONAL_SITE", "https://shdgov-my.sharepoint.com/personal/dzuniga_shd_gov_co1")
-DEST     = os.environ.get("DEST_FOLDER", "/personal/dzuniga_shd_gov_co1/Documents/Pruebas")
+DEST = os.environ.get("DEST_FOLDER", "/personal/dzuniga_shd_gov_co1/Documents/Pruebas")
 REFRESH_EVERY = int(os.environ.get("REFRESH_EVERY", "3000"))  # 50 min (token dura ~65)
-DELIVER_HOST = os.environ.get("SPM_DELIVER_HOST", "")           # ej. "gold"; vacío = no entregar
+DELIVER_HOST = os.environ.get("SPM_DELIVER_HOST", "")  # ej. "gold"; vacío = no entregar
 DELIVER_PATH = os.environ.get("SPM_DELIVER_PATH", str(TOKEN_FILE))  # ruta remota (default canónica)
 
 
-def _log(m): print(m, flush=True)
+def _log(m):
+    print(m, flush=True)
 
 
 def _write_secure(path: Path, data: str, mode=0o600):
@@ -88,7 +98,8 @@ def _write_secure(path: Path, data: str, mode=0o600):
 
 def _exp_minutes(tok: str):
     try:
-        p = tok.split(".")[1]; p += "=" * (-len(p) % 4)
+        p = tok.split(".")[1]
+        p += "=" * (-len(p) % 4)
         exp = json.loads(base64.urlsafe_b64decode(p))["exp"]
         return int((datetime.datetime.fromtimestamp(int(exp)) - datetime.datetime.now()).total_seconds() / 60)
     except Exception:
@@ -101,9 +112,16 @@ def _deliver():
     # rsync -s (--protect-args): la ruta remota con espacios ("Cargue a Onedrive") NO la parte
     # el shell remoto. Args como lista (sin shell=True) => imposible inyectar comandos.
     rc = subprocess.run(
-        ["rsync", "-s", "-e", "ssh -o BatchMode=yes -o ConnectTimeout=10",
-         str(TOKEN_FILE), f"{DELIVER_HOST}:{DELIVER_PATH}"],
-        capture_output=True, text=True,
+        [
+            "rsync",
+            "-s",
+            "-e",
+            "ssh -o BatchMode=yes -o ConnectTimeout=10",
+            str(TOKEN_FILE),
+            f"{DELIVER_HOST}:{DELIVER_PATH}",
+        ],
+        capture_output=True,
+        text=True,
     ).returncode
     _log(f"  entrega -> {DELIVER_HOST}: {'ok' if rc == 0 else 'rc=' + str(rc)}")
 
@@ -117,18 +135,27 @@ def _save_access(tok: str):
 def login():
     r = requests.post(f"{AUTH}/devicecode", data={"client_id": CLIENT, "scope": SCOPE}, timeout=20)
     if r.status_code != 200:
-        _log("ERROR devicecode: " + r.text[:300]); return 1
+        _log("ERROR devicecode: " + r.text[:300])
+        return 1
     dc = r.json()
     _log("\n  === AUTENTICA ===")
     _log("  URL:    " + dc["verification_uri"])
     _log("  CÓDIGO: " + dc["user_code"])
     _log("  (esperando login + MFA...)\n")
-    iv = dc.get("interval", 5); waited = 0
+    iv = dc.get("interval", 5)
+    waited = 0
     while waited < dc.get("expires_in", 900):
-        time.sleep(iv); waited += iv
-        pr = requests.post(f"{AUTH}/token", data={
-            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-            "client_id": CLIENT, "device_code": dc["device_code"]}, timeout=20)
+        time.sleep(iv)
+        waited += iv
+        pr = requests.post(
+            f"{AUTH}/token",
+            data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                "client_id": CLIENT,
+                "device_code": dc["device_code"],
+            },
+            timeout=20,
+        )
         if pr.status_code == 200:
             j = pr.json()
             _write_secure(RT_FILE, j["refresh_token"])
@@ -139,24 +166,37 @@ def login():
         if e == "authorization_pending":
             continue
         if e == "slow_down":
-            iv += 5; continue
-        _log("  ❌ " + str(e) + ": " + (pr.json().get("error_description", "") or "")[:200]); return 2
-    _log("  ❌ timeout"); return 3
+            iv += 5
+            continue
+        _log("  ❌ " + str(e) + ": " + (pr.json().get("error_description", "") or "")[:200])
+        return 2
+    _log("  ❌ timeout")
+    return 3
 
 
 def refresh():
     if not RT_FILE.exists():
-        _log("  ❌ no hay refresh token; corre: token_refresher.py login"); return 1
+        _log("  ❌ no hay refresh token; corre: token_refresher.py login")
+        return 1
     rt = RT_FILE.read_text().strip()
-    r = requests.post(f"{AUTH}/token", data={
-        "grant_type": "refresh_token", "client_id": CLIENT,
-        "refresh_token": rt, "scope": SCOPE}, timeout=20)
+    r = requests.post(
+        f"{AUTH}/token",
+        data={"grant_type": "refresh_token", "client_id": CLIENT, "refresh_token": rt, "scope": SCOPE},
+        timeout=20,
+    )
     if r.status_code != 200:
         j = r.json()
-        _log("  ❌ refresh falló: " + str(r.status_code) + " " + j.get("error", "") + " " + (j.get("error_description", "") or "")[:200])
+        _log(
+            "  ❌ refresh falló: "
+            + str(r.status_code)
+            + " "
+            + j.get("error", "")
+            + " "
+            + (j.get("error_description", "") or "")[:200]
+        )
         return 1
     j = r.json()
-    if j.get("refresh_token"):        # rotación: persistir el refresh token nuevo
+    if j.get("refresh_token"):  # rotación: persistir el refresh token nuevo
         _write_secure(RT_FILE, j["refresh_token"])
     _save_access(j["access_token"])
     return 0
@@ -182,8 +222,11 @@ def test_write():
     name = "spm_oauth_writetest.txt"
     enc_folder = urllib.parse.quote(DEST, safe="/")
     enc_name = urllib.parse.quote(name)
-    add_url = f"{PERSONAL}/_api/web/GetFolderByServerRelativeUrl('{enc_folder}')/Files/add(url='{enc_name}',overwrite=true)"
-    h = _api_headers(); h["Content-Type"] = "application/octet-stream"
+    add_url = (
+        f"{PERSONAL}/_api/web/GetFolderByServerRelativeUrl('{enc_folder}')/Files/add(url='{enc_name}',overwrite=true)"
+    )
+    h = _api_headers()
+    h["Content-Type"] = "application/octet-stream"
     body = b"oauth write test " + str(datetime.datetime.now()).encode()
     r = requests.post(add_url, headers=h, data=body, timeout=60)
     _log(f"  ADD: HTTP {r.status_code} {'OK' if r.status_code in (200, 201) else r.text[:200]}")
@@ -192,7 +235,9 @@ def test_write():
     # borrar el archivo de prueba
     server_rel = f"{DEST}/{name}"
     del_url = f"{PERSONAL}/_api/web/GetFileByServerRelativeUrl('{urllib.parse.quote(server_rel, safe='/')}')"
-    hd = _api_headers(); hd["X-HTTP-Method"] = "DELETE"; hd["IF-MATCH"] = "*"
+    hd = _api_headers()
+    hd["X-HTTP-Method"] = "DELETE"
+    hd["IF-MATCH"] = "*"
     rd = requests.post(del_url, headers=hd, timeout=60)
     _log(f"  DELETE prueba: HTTP {rd.status_code} {'OK' if rd.status_code in (200, 204) else rd.text[:120]}")
     return 0
@@ -211,7 +256,8 @@ def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
     fn = {"login": login, "refresh": refresh, "run": run, "test-write": test_write, "status": status}.get(cmd)
     if not fn:
-        _log(__doc__); sys.exit(1)
+        _log(__doc__)
+        sys.exit(1)
     sys.exit(fn() or 0)
 
 

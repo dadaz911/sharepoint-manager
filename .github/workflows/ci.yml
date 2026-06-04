@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python (ruff + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Instalar herramientas
+        run: pip install ruff==0.15.15 mypy==2.1.0
+      - name: ruff check (lint)
+        run: ruff check .
+      - name: ruff format (check)
+        run: ruff format --check .
+      - name: mypy
+        run: mypy --ignore-missing-imports $(git ls-files '*.py')
+
+  shell:
+    name: Shell (bash -n + shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sintaxis bash
+        run: |
+          for f in $(git ls-files '*.sh'); do
+            echo "bash -n $f"; bash -n "$f"
+          done
+      - name: Instalar shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - name: shellcheck
+        # SC1091: no seguir archivos sourced (upload.env es config host-local, no está en el repo)
+        run: shellcheck -e SC1091 $(git ls-files '*.sh')

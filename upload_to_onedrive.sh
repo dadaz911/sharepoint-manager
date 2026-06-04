@@ -7,10 +7,12 @@
 BASE_URL="https://shdgov-my.sharepoint.com/personal/dzuniga_shd_gov_co1/_api/web"
 DEST_FOLDER="/personal/dzuniga_shd_gov_co1/Documents/Pruebas"
 SOURCE_DIR="/home/daniel/Desktop/Cargue a Onedrive"
+# shellcheck disable=SC2034  # config documentativa, conservada para no alterar el bloque legacy
 LOG_FILE="$SOURCE_DIR/upload_log.txt"
 ERROR_LOG="$SOURCE_DIR/upload_errors.txt"
 PROGRESS_FILE="$SOURCE_DIR/upload_progress.txt"
 TOKEN_FILE="$SOURCE_DIR/.token"
+# shellcheck disable=SC2034  # config documentativa, conservada para no alterar el bloque legacy
 PARALLEL_JOBS=5
 
 # Colores
@@ -23,7 +25,7 @@ NC='\033[0m'
 get_token_from_browser() {
     echo -e "${YELLOW}Por favor, asegúrate de que OneDrive esté abierto en Chrome/Edge${NC}"
     echo "Presiona Enter cuando esté listo..."
-    read
+    read -r
 }
 
 # Función para crear carpeta en OneDrive
@@ -42,14 +44,14 @@ create_folder() {
 upload_file() {
     local file_path="$1"
     local token="$2"
-    local relative_path="${file_path#$SOURCE_DIR/}"
+    local relative_path="${file_path#"$SOURCE_DIR"/}"
     local dest_path="$DEST_FOLDER/$relative_path"
-    local folder_path=$(dirname "$dest_path")
-    local file_name=$(basename "$file_path")
+    local folder_path; folder_path=$(dirname "$dest_path")
+    local file_name; file_name=$(basename "$file_path")
 
     # URL encode del nombre
-    local encoded_name=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$file_name'))")
-    local encoded_folder=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$folder_path'))")
+    local encoded_name; encoded_name=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$file_name'))")
+    local encoded_folder; encoded_folder=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$folder_path'))")
 
     # Subir archivo
     response=$(curl -s -w "%{http_code}" -o /tmp/upload_response.json -X POST \
@@ -75,8 +77,9 @@ create_folder_structure() {
     local token="$1"
     echo -e "${YELLOW}Creando estructura de carpetas...${NC}"
 
-    find "$SOURCE_DIR" -type d ! -path "$SOURCE_DIR" ! -name ".*" | while read dir; do
-        relative_dir="${dir#$SOURCE_DIR}"
+    find "$SOURCE_DIR" -type d ! -path "$SOURCE_DIR" ! -name ".*" | while read -r dir; do
+        relative_dir="${dir#"$SOURCE_DIR"}"
+        # shellcheck disable=SC2034  # encoded_dir no se usa, pero conserva el subproceso python3 original
         encoded_dir=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$relative_dir'))")
 
         curl -s -X POST \
@@ -149,7 +152,7 @@ main() {
 
     # Subir archivos
     count=0
-    find "$SOURCE_DIR" -type f \( -name "*.pdf" -o -name "*.PDF" \) ! -path "*/.*" | while read file; do
+    find "$SOURCE_DIR" -type f \( -name "*.pdf" -o -name "*.PDF" \) ! -path "*/.*" | while read -r file; do
         # Saltar si ya fue subido
         if [[ -f "$PROGRESS_FILE" ]] && grep -qF "$file" "$PROGRESS_FILE"; then
             continue

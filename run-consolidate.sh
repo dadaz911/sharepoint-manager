@@ -1,7 +1,7 @@
 #!/bin/bash
 # run-consolidate.sh — corre la consolidación masiva EN carbon, detached y resumible.
 # Mantiene el token fresco jalándolo del Pi y corre consolidar_masivo.py (MoveFile + delete).
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 set -a; . ./upload.env; set +a
 
 ( while true; do
