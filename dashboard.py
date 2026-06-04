@@ -26,7 +26,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 # Configuracion hardcodeada
-CONFIG = {
+CONFIG: Dict[str, Any] = {
     "base_url": "https://shdgov-my.sharepoint.com/personal/dzuniga_shd_gov_co1/_api/web",
     "dest_folder": "/personal/dzuniga_shd_gov_co1/Documents/Pruebas",
     "source_dir": "/home/daniel/Desktop/Cargue a Onedrive",
@@ -37,7 +37,7 @@ CONFIG = {
 }
 
 # Configuracion de sitios SharePoint para el explorador
-SHAREPOINT_SITES = {
+SHAREPOINT_SITES: Dict[str, Any] = {
     "personal": {
         "name": "Mi OneDrive",
         "base_url": "https://shdgov-my.sharepoint.com/personal/dzuniga_shd_gov_co1/_api/web",
@@ -132,7 +132,7 @@ UPLOAD_LOG_FILE = Path("/tmp/upload_paralelo.log")
 
 def get_upload_log_progress() -> Dict[str, Any]:
     """Lee el log del proceso de subida para obtener progreso en tiempo real"""
-    result = {"uploaded": 0, "speed": 0, "percentage": 0, "new_count": 0}
+    result: Dict[str, Any] = {"uploaded": 0, "speed": 0, "percentage": 0, "new_count": 0}
 
     if not UPLOAD_LOG_FILE.exists():
         return result
@@ -212,7 +212,7 @@ def get_progress() -> Dict[str, Any]:
             "percentage": round((uploaded / total) * 100, 2) if total > 0 else 0,
             "error_list": errors[-50:],  # ultimos 50 errores
             "uploaded_set": set(uploaded_list),  # set para comparacion rapida
-            "errors_set": set(e.get("file", "") for e in errors),  # set de archivos con error
+            "errors_set": {e.get("file", "") for e in errors},  # set de archivos con error
         }
     except Exception as e:
         logger.error(f"Error leyendo progreso: {e}")
@@ -271,7 +271,7 @@ def check_chrome_cdp() -> bool:
 
         r = requests.get(f"http://localhost:{CONFIG['cdp_port']}/json/version", timeout=2)
         return r.status_code == 200
-    except:
+    except Exception:
         return False
 
 
@@ -300,7 +300,7 @@ def explore_sharepoint_folder(site_key: str, folder_path: str) -> Dict[str, Any]
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json;odata=verbose"}
 
     encoded_folder = urllib.parse.quote(folder_path, safe='/')
-    resultado = {
+    resultado: Dict[str, Any] = {
         "path": folder_path,
         "site": site_key,
         "site_name": site["name"],
@@ -407,7 +407,7 @@ def get_file_details(site_key: str, file_path: str) -> Dict[str, Any]:
 
     encoded_path = urllib.parse.quote(file_path, safe='/')
     url = f"{base_url}/GetFileByServerRelativeUrl('{encoded_path}')"
-    url += "?$select=Name,Length,TimeCreated,TimeLastModified,ServerRelativeUrl,CheckOutType,MajorVersion,MinorVersion,UIVersionLabel,Author/Title,ModifiedBy/Title"
+    url += "?$select=Name,Length,TimeCreated,TimeLastModified,ServerRelativeUrl,CheckOutType,MajorVersion,MinorVersion,UIVersionLabel,Author/Title,ModifiedBy/Title"  # noqa: E501
     url += "&$expand=Author,ModifiedBy"
 
     try:
@@ -514,7 +514,7 @@ def list_folder_files_recursive(site_key: str, folder_path: str, max_files: int 
     token = TOKEN_FILE.read_text().strip()
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json;odata=verbose"}
 
-    all_files = []
+    all_files: List[Dict[str, Any]] = []
 
     def explore_recursive(path: str, depth: int = 0):
         if len(all_files) >= max_files or depth > 5:
@@ -536,7 +536,7 @@ def list_folder_files_recursive(site_key: str, folder_path: str, max_files: int 
                     all_files.append(
                         {"name": f.get('Name'), "size": int(f.get('Length', 0)), "path": f.get('ServerRelativeUrl')}
                     )
-        except:
+        except Exception:
             pass
 
         # Obtener subcarpetas y explorar
@@ -551,7 +551,7 @@ def list_folder_files_recursive(site_key: str, folder_path: str, max_files: int 
                     name = folder.get('Name', '')
                     if not name.startswith('_') and len(all_files) < max_files:
                         explore_recursive(folder.get('ServerRelativeUrl'), depth + 1)
-        except:
+        except Exception:
             pass
 
     explore_recursive(folder_path)
@@ -567,7 +567,7 @@ def get_token_expiration(token: str) -> int:
         payload = parts[1] + '=' * (4 - len(parts[1]) % 4)
         data = json.loads(base64.urlsafe_b64decode(payload))
         return int(data.get('exp', 0))
-    except:
+    except Exception:
         return 0
 
 
@@ -717,14 +717,14 @@ def monitor_loop():
                 if state.last_log_uploaded == 0:
                     # Primera vez que detectamos progreso - registrar inicio
                     state.add_log(
-                        f"Detectado proceso de subida: {log_progress['uploaded']:,}/{log_progress.get('total', 92579):,} archivos",
+                        f"Detectado proceso de subida: {log_progress['uploaded']:,}/{log_progress.get('total', 92579):,} archivos",  # noqa: E501
                         "info",
                     )
                     state.last_log_uploaded = log_progress["uploaded"]
                 elif log_progress["uploaded"] < state.last_log_uploaded:
                     # El proceso se reinicio - el log empezo de nuevo
                     state.add_log(
-                        f"Proceso reiniciado - ahora en: {log_progress['uploaded']:,}/{log_progress.get('total', 92579):,}",
+                        f"Proceso reiniciado - ahora en: {log_progress['uploaded']:,}/{log_progress.get('total', 92579):,}",  # noqa: E501
                         "info",
                     )
                     state.last_log_uploaded = log_progress["uploaded"]
@@ -736,7 +736,7 @@ def monitor_loop():
                             state.add_log(f"Archivo #{log_progress['uploaded'] - new_count + i + 1} subido", "upload")
                     else:
                         state.add_log(
-                            f"+{new_count} archivos subidos ({log_progress['uploaded']:,}/{log_progress.get('total', 92579):,})",
+                            f"+{new_count} archivos subidos ({log_progress['uploaded']:,}/{log_progress.get('total', 92579):,})",  # noqa: E501
                             "upload",
                         )
                     # Actualizar conteo para el proximo ciclo
@@ -780,7 +780,7 @@ def monitor_loop():
             try:
                 result = subprocess.run(['pgrep', '-f', 'subir_paralelo.py'], capture_output=True, text=True)
                 external_process = result.returncode == 0 and bool(result.stdout.strip())
-            except:
+            except Exception:
                 pass
 
             # Construir status (excluir sets que no son JSON serializable)
@@ -887,7 +887,7 @@ def api_status():
     try:
         result = subprocess.run(['pgrep', '-f', 'subir_paralelo.py'], capture_output=True, text=True)
         external_running = result.returncode == 0 and bool(result.stdout.strip())
-    except:
+    except Exception:
         pass
 
     is_running = state.is_running or external_running
@@ -995,7 +995,7 @@ def api_history():
             if hour_key not in hourly:
                 hourly[hour_key] = {"start": entry["uploaded"], "end": entry["uploaded"]}
             hourly[hour_key]["end"] = entry["uploaded"]
-        except:
+        except Exception:
             pass
 
     hourly_data = []
@@ -1036,9 +1036,8 @@ def api_config():
 def is_upload_process_running() -> bool:
     """Verificar si hay un proceso de subida corriendo (interno o externo)"""
     # Verificar proceso interno del dashboard
-    if state.is_running and state.upload_process:
-        if state.upload_process.poll() is None:
-            return True
+    if state.is_running and state.upload_process and state.upload_process.poll() is None:
+        return True
 
     # Verificar procesos externos (subir_paralelo.py lanzado desde terminal)
     try:
@@ -1047,7 +1046,7 @@ def is_upload_process_running() -> bool:
         result = subprocess.run(['pgrep', '-f', 'subir_paralelo.py'], capture_output=True, text=True)
         if result.returncode == 0 and result.stdout.strip():
             return True
-    except:
+    except Exception:
         pass
 
     return False
@@ -1151,8 +1150,7 @@ def api_explorer_download():
             filename = file_path.split('/')[-1]
 
             def generate():
-                for chunk in r.iter_content(chunk_size=8192):
-                    yield chunk
+                yield from r.iter_content(chunk_size=8192)
 
             return Response(
                 generate(),
@@ -1234,10 +1232,7 @@ def api_explorer_details():
     if not path:
         return jsonify({"error": "Ruta no especificada"})
 
-    if item_type == 'folder':
-        result = get_folder_details(site_key, path)
-    else:
-        result = get_file_details(site_key, path)
+    result = get_folder_details(site_key, path) if item_type == 'folder' else get_file_details(site_key, path)
 
     return jsonify(result)
 
@@ -1320,7 +1315,7 @@ def download_file_chunked(
 
 def download_files_parallel(files: list, folder_path: str, headers: dict, site_key: str, max_workers: int = 4) -> dict:
     """Descargar multiples archivos en paralelo"""
-    results = {
+    results: Dict[str, Any] = {
         "downloaded": [],
         "failed": [],
         "data": {},  # relative_path -> bytes
@@ -1330,7 +1325,6 @@ def download_files_parallel(files: list, folder_path: str, headers: dict, site_k
         futures = {executor.submit(download_single_file, f, folder_path, headers, site_key): f for f in files}
 
         for future in as_completed(futures):
-            file_info = futures[future]
             relative_path, content, error = future.result()
 
             if content:
@@ -1595,7 +1589,7 @@ def cleanup():
         state.upload_process.terminate()
         try:
             state.upload_process.wait(timeout=5)
-        except:
+        except Exception:
             state.upload_process.kill()
 
 

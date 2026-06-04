@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: "3.x"
       - name: Instalar herramientas
-        run: pip install ruff==0.15.15 mypy
+        run: pip install ruff==0.15.15 mypy==2.1.0
       - name: ruff check (lint)
         run: ruff check .
       - name: ruff format (check)

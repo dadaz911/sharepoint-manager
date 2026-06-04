@@ -27,7 +27,7 @@ def decode_jwt_expiry(token):
             if exp:
                 exp_date = datetime.fromtimestamp(int(exp))
                 return exp_date
-    except:
+    except Exception:
         pass
     return None
 

@@ -19,7 +19,9 @@ ignore = [
 quote-style = "preserve"     # no reescribir comillas en los scripts existentes
 
 [tool.mypy]
-python_version = "3.8"
+# Sin python_version pinneado: mypy usa el runtime (todos los hosts corren 3.13).
+# La compat 3.8+ del código la cubren `from __future__ import annotations` (runtime)
+# y `target-version = py38` de ruff (lint).
 ignore_missing_imports = true   # requests, etc. sin stubs
 warn_unused_ignores = true
 warn_redundant_casts = true

@@ -36,7 +36,7 @@ class MisArchivos:
                 data = json.loads(base64.urlsafe_b64decode(payload))
                 self.my_email = data.get('upn', '').lower()
                 print(f"[OK] Usuario: {self.my_email}")
-            except:
+            except Exception:
                 print("[ERROR] No se pudo extraer el usuario del token")
                 return False
         return True
@@ -51,7 +51,7 @@ class MisArchivos:
             data = json.loads(base64.urlsafe_b64decode(payload))
             exp = datetime.fromtimestamp(int(data['exp']))
             return datetime.now() < exp
-        except:
+        except Exception:
             return False
 
     def get_headers(self):
@@ -71,7 +71,7 @@ class MisArchivos:
 
         # Obtener archivos con metadatos expandidos (Author)
         url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_folder}')/Files"
-        url += "?$expand=Author,ListItemAllFields&$select=Name,Length,TimeCreated,Author/Email,Author/Title,ServerRelativeUrl"
+        url += "?$expand=Author,ListItemAllFields&$select=Name,Length,TimeCreated,Author/Email,Author/Title,ServerRelativeUrl"  # noqa: E501
 
         try:
             r = requests.get(url, headers=self.get_headers(), timeout=30)
@@ -270,7 +270,7 @@ class MisArchivos:
                 count = data.get('d', {}).get('ItemCount', 0)
                 print(f"[INFO] {folder}: {count} items")
                 return count
-        except:
+        except Exception:
             pass
 
         return 0

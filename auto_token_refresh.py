@@ -26,10 +26,10 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 # Configuración
-CONFIG = {
+CONFIG: Dict[str, Any] = {
     "token_file": "/home/daniel/Desktop/Cargue a Onedrive/.token",
     "progress_file": "/home/daniel/Desktop/Cargue a Onedrive/.upload_progress.json",
     "chrome_profile": "/home/daniel/.config/onedrive-uploader-chrome",
@@ -63,7 +63,7 @@ class AutoTokenRefresh:
             exp = datetime.fromtimestamp(int(data['exp']))
             remaining = (exp - datetime.now()).total_seconds() / 60
             return token, max(0, remaining)
-        except:
+        except Exception:
             return token, 0
 
     def get_progress(self) -> Tuple[int, float]:
@@ -77,7 +77,7 @@ class AutoTokenRefresh:
             uploaded = len(data.get("uploaded", []))
             pct = (uploaded / CONFIG["total_files"]) * 100
             return uploaded, pct
-        except:
+        except Exception:
             return 0, 0
 
     def check_chrome_running(self) -> bool:
@@ -87,7 +87,7 @@ class AutoTokenRefresh:
 
             r = requests.get(f"http://localhost:{CONFIG['cdp_port']}/json/version", timeout=2)
             return r.status_code == 200
-        except:
+        except Exception:
             return False
 
     def start_chrome(self, headless: bool = True) -> bool:
@@ -139,20 +139,19 @@ class AutoTokenRefresh:
                     tab = t
                     break
 
-            if not tab:
+            if not tab and tabs:
                 # Si no hay tab de OneDrive, navegamos
-                if tabs:
-                    tab = tabs[0]
-                    ws = websocket.create_connection(tab["webSocketDebuggerUrl"], timeout=10)
-                    ws.send(json.dumps({"id": 1, "method": "Page.navigate", "params": {"url": CONFIG["onedrive_url"]}}))
-                    ws.recv()
-                    ws.close()
-                    time.sleep(5)
+                tab = tabs[0]
+                ws = websocket.create_connection(tab["webSocketDebuggerUrl"], timeout=10)
+                ws.send(json.dumps({"id": 1, "method": "Page.navigate", "params": {"url": CONFIG["onedrive_url"]}}))
+                ws.recv()
+                ws.close()
+                time.sleep(5)
 
-                    # Obtener tabs de nuevo
-                    r = requests.get(f"http://localhost:{CONFIG['cdp_port']}/json", timeout=5)
-                    tabs = r.json()
-                    tab = tabs[0] if tabs else None
+                # Obtener tabs de nuevo
+                r = requests.get(f"http://localhost:{CONFIG['cdp_port']}/json", timeout=5)
+                tabs = r.json()
+                tab = tabs[0] if tabs else None
 
             if not tab:
                 return None
@@ -169,7 +168,8 @@ class AutoTokenRefresh:
             js_code = """
             (function() {
                 const keys = Object.keys(localStorage);
-                const spKey = keys.find(k => k.includes('sharepoint_selfissued') && k.includes('shdgov-my.sharepoint.com'));
+                const spKey = keys.find(k => k.includes('sharepoint_selfissued')
+                    && k.includes('shdgov-my.sharepoint.com'));
                 if (spKey) {
                     try {
                         const data = JSON.parse(localStorage.getItem(spKey));
@@ -225,7 +225,7 @@ class AutoTokenRefresh:
         """Enviar notificación del sistema"""
         try:
             subprocess.run(["notify-send", title, message, "-u", "normal"], capture_output=True, timeout=5)
-        except:
+        except Exception:
             pass
 
     def setup(self):

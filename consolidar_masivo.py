@@ -18,6 +18,8 @@ Env: SPM_BASE_URL, SPM_DEST_FOLDER, SPM_SOURCE_DIR, SPM_TOKEN_FILE, SPM_THREADS 
      SPM_DRYRUN (1 = solo muestra el plan, no toca nada)
 """
 
+from __future__ import annotations
+
 import collections
 import json
 import os
@@ -26,6 +28,7 @@ import threading
 import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
+from typing import TextIO
 
 import requests
 
@@ -46,9 +49,9 @@ MOVE_EP = SITE + "/SP.MoveCopyUtil.MoveFile"  # rutas en el cuerpo -> evita el l
 _lock = threading.Lock()
 _tok = {"v": None}
 _pause = {"t": 0.0}
-_done = set()
-_stats = collections.Counter()
-_errlog = None
+_done: set[str] = set()
+_stats: collections.Counter = collections.Counter()
+_errlog: TextIO | None = None
 
 
 def log(m):
@@ -56,8 +59,8 @@ def log(m):
 
 
 def load_token():
-    with _lock:
-        _tok["v"] = open(TOKEN_FILE).read().strip()
+    with _lock, open(TOKEN_FILE) as f:
+        _tok["v"] = f.read().strip()
 
 
 def norm(num):
@@ -110,7 +113,7 @@ def build_plan():
             continue
         num2[norm(m.group(2))].append((name, m.group(1)))
     plan = []
-    for n, folders in num2.items():
+    for _n, folders in num2.items():
         reals = [(nm, pre) for nm, pre in folders if pre in REAL]
         if not reals:
             skipped += [f"{nm} (sin canónica)" for nm, _ in folders]
@@ -157,6 +160,7 @@ def process(s, noncanon, canon, files):
                 _stats["already"] += 1
             continue
         code = r.status_code if r is not None else "noresp"
+        assert _errlog is not None  # main() lo abre antes de procesar
         _errlog.write(f"move_fail\t{noncanon}/{f}\t{code}\t{(r.text[:120] if r is not None else '')}\n")
         _errlog.flush()
         with _lock:
@@ -167,6 +171,7 @@ def process(s, noncanon, canon, files):
     r = _req(s, "POST", url, data=b"", headers={"X-HTTP-Method": "DELETE", "IF-MATCH": "*"})
     if r is None or r.status_code not in (200, 204):
         code = r.status_code if r is not None else "noresp"
+        assert _errlog is not None  # main() lo abre antes de procesar
         _errlog.write(f"del_fail\t{noncanon}\t{code}\n")
         _errlog.flush()
         with _lock:
@@ -182,7 +187,8 @@ def save_progress():
     with _lock:
         data = sorted(_done)
     tmp = PROGRESS + ".tmp"
-    open(tmp, "w").write(json.dumps({"done": data}))
+    with open(tmp, "w") as f:
+        f.write(json.dumps({"done": data}))
     os.replace(tmp, PROGRESS)
 
 
@@ -190,7 +196,8 @@ def main():
     load_token()
     if os.path.exists(PROGRESS):
         try:
-            _done.update(json.load(open(PROGRESS)).get("done", []))
+            with open(PROGRESS) as f:
+                _done.update(json.load(f).get("done", []))
         except Exception:
             pass
     plan, skipped = build_plan()
@@ -205,7 +212,8 @@ def main():
         log(f"(dry-run; saltadas ej.: {skipped[:3]})")
         return
     global _errlog
-    _errlog = open(os.path.join(SRC, ".consolidate_errors.log"), "a")
+    # handle de log global, abierto a propósito durante toda la corrida
+    _errlog = open(os.path.join(SRC, ".consolidate_errors.log"), "a")  # noqa: SIM115
     if not pending:
         log("nada pendiente")
         return

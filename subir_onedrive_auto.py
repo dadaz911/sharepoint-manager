@@ -42,7 +42,7 @@ class AutoUploader:
             try:
                 with open(self.progress_file) as f:
                     return json.load(f)
-            except:
+            except Exception:
                 pass
         return {"uploaded": [], "errors": [], "folders_created": []}
 
@@ -65,7 +65,7 @@ class AutoUploader:
             payload = parts[1] + '=' * (4 - len(parts[1]) % 4)
             data = json.loads(base64.urlsafe_b64decode(payload))
             return datetime.fromtimestamp(int(data['exp']))
-        except:
+        except Exception:
             return None
 
     def token_minutes_remaining(self):
@@ -108,7 +108,7 @@ class AutoUploader:
         try:
             r = self.session.get(url, headers=headers, timeout=10)
             return r.status_code == 200
-        except:
+        except Exception:
             return False
 
     def create_folder(self, relative_path):
@@ -146,7 +146,7 @@ class AutoUploader:
                 if r.status_code in [200, 201]:
                     self.created_folders.add(full_path)
                     print(f"  📁 Carpeta: {current_path}")
-            except:
+            except Exception:
                 pass
 
         return True
@@ -169,7 +169,7 @@ class AutoUploader:
         file_name = file_path.name
         encoded_name = urllib.parse.quote(file_name)
 
-        url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_folder}')/Files/add(url='{encoded_name}',overwrite=true)"
+        url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_folder}')/Files/add(url='{encoded_name}',overwrite=true)"  # noqa: E501
 
         headers = {
             "Authorization": f"Bearer {self.token}",

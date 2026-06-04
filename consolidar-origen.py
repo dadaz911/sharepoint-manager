@@ -43,7 +43,7 @@ for d in os.listdir(BASE):
     num2[(m.group(2).lstrip("0") or "0")].append((d, m.group(1)))
 
 moved = removed = folders = 0
-for n, folders_ in num2.items():
+for _n, folders_ in num2.items():
     canon = canon_of(folders_)
     if canon is None:
         skipped += [(nm, "sin canónica") for nm, _ in folders_]
@@ -88,7 +88,7 @@ for n, folders_ in num2.items():
             skipped.append((nm, str(e)))
 
 print(
-    f"{'(DRY) ' if DRY else ''}archivos movidos: {moved} | archivos redundantes eliminados: {removed} | carpetas eliminadas: {folders} | saltadas: {len(skipped)}"
+    f"{'(DRY) ' if DRY else ''}archivos movidos: {moved} | archivos redundantes eliminados: {removed} | carpetas eliminadas: {folders} | saltadas: {len(skipped)}"  # noqa: E501
 )
 for s in skipped[:12]:
     print("  SKIP", s)

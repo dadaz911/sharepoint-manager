@@ -21,7 +21,8 @@ import requests
 BASE = os.environ["SPM_BASE_URL"].rstrip("/")
 DEST = os.environ["SPM_DEST_FOLDER"].rstrip("/")
 SRC = os.environ["SPM_SOURCE_DIR"]
-TOK = open(os.environ["SPM_TOKEN_FILE"]).read().strip()
+with open(os.environ["SPM_TOKEN_FILE"]) as _tf:
+    TOK = _tf.read().strip()
 DRY = os.environ.get("DRY", "") == "1"
 H = {"Authorization": f"Bearer {TOK}", "Accept": "application/json;odata=nometadata"}
 
@@ -56,7 +57,7 @@ def localfiles(d):
 
 
 # Candidatas: 'NIT-0+<n>' con canónica 'NIT-<n>' y redundancia LOCAL total.
-dirs = set(d for d in os.listdir(SRC) if os.path.isdir(os.path.join(SRC, d)))
+dirs = {d for d in os.listdir(SRC) if os.path.isdir(os.path.join(SRC, d))}
 cands = []
 for p in dirs:
     if not re.match(r'^NIT-0+\d', p):

@@ -43,7 +43,7 @@ class ExploradorSharePoint:
             data = json.loads(base64.urlsafe_b64decode(payload))
             exp = datetime.fromtimestamp(int(data['exp']))
             return datetime.now() < exp
-        except:
+        except Exception:
             return False
 
     def get_headers(self):
@@ -54,7 +54,7 @@ class ExploradorSharePoint:
         if CONFIG["cache_file"].exists():
             try:
                 self.mapa = json.loads(CONFIG["cache_file"].read_text())
-            except:
+            except Exception:
                 pass
 
     def save_cache(self):
@@ -296,10 +296,7 @@ class ExploradorSharePoint:
                 return False
 
         folder_name = folder_path.split('/')[-1]
-        if destino:
-            dest_dir = Path(destino)
-        else:
-            dest_dir = CONFIG["download_dir"] / folder_name
+        dest_dir = Path(destino) if destino else CONFIG["download_dir"] / folder_name
 
         dest_dir.mkdir(parents=True, exist_ok=True)
 

@@ -46,7 +46,7 @@ class ParallelUploader:
             try:
                 with open(self.progress_file) as f:
                     return json.load(f)
-            except:
+            except Exception:
                 pass
         return {"uploaded": [], "errors": [], "folders_created": []}
 
@@ -72,7 +72,7 @@ class ParallelUploader:
             exp = datetime.fromtimestamp(int(data['exp']))
             remaining = (exp - datetime.now()).total_seconds() / 60
             return max(0, remaining)
-        except:
+        except Exception:
             return 0
 
     def is_token_valid(self):
@@ -128,7 +128,7 @@ class ParallelUploader:
                 if r.status_code in [200, 201]:
                     with self.lock:
                         self.created_folders.add(full_path)
-            except:
+            except Exception:
                 pass
 
         return True
@@ -161,7 +161,7 @@ class ParallelUploader:
         file_name = file_path.name
         encoded_name = urllib.parse.quote(file_name)
 
-        url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_folder}')/Files/add(url='{encoded_name}',overwrite=true)"
+        url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_folder}')/Files/add(url='{encoded_name}',overwrite=true)"  # noqa: E501
 
         headers = {
             "Authorization": f"Bearer {self.token}",
@@ -332,10 +332,7 @@ def main():
     while True:
         try:
             threads = input("  Numero de hilos [4]: ").strip()
-            if not threads:
-                threads = 4
-            else:
-                threads = int(threads)
+            threads = 4 if not threads else int(threads)
 
             if 1 <= threads <= 10:
                 break

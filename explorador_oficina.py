@@ -44,7 +44,7 @@ class ExploradorOficina:
             data = json.loads(base64.urlsafe_b64decode(payload))
             exp = datetime.fromtimestamp(int(data['exp']))
             return datetime.now() < exp
-        except:
+        except Exception:
             return False
 
     def token_minutes(self):
@@ -56,7 +56,7 @@ class ExploradorOficina:
             data = json.loads(base64.urlsafe_b64decode(payload))
             exp = datetime.fromtimestamp(int(data['exp']))
             return max(0, (exp - datetime.now()).total_seconds() / 60)
-        except:
+        except Exception:
             return 0
 
     def get_headers(self):
@@ -66,7 +66,7 @@ class ExploradorOficina:
         if CONFIG["cache_file"].exists():
             try:
                 self.mapa = json.loads(CONFIG["cache_file"].read_text())
-            except:
+            except Exception:
                 pass
 
     def save_cache(self):

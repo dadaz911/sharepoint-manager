@@ -40,7 +40,7 @@ class OneDriveUploader:
             try:
                 with open(self.progress_file) as f:
                     return json.load(f)
-            except:
+            except Exception:
                 pass
         return {"uploaded": [], "errors": [], "folders_created": []}
 
@@ -67,7 +67,7 @@ class OneDriveUploader:
         try:
             r = self.session.get(url, headers=headers, timeout=10)
             return r.status_code == 200
-        except:
+        except Exception:
             return False
 
     def create_folder(self, relative_path):
@@ -139,7 +139,7 @@ class OneDriveUploader:
         file_name = file_path.name
         encoded_name = urllib.parse.quote(file_name)
 
-        url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_folder}')/Files/add(url='{encoded_name}',overwrite=true)"
+        url = f"{CONFIG['base_url']}/GetFolderByServerRelativeUrl('{encoded_folder}')/Files/add(url='{encoded_name}',overwrite=true)"  # noqa: E501
 
         headers = {
             "Authorization": f"Bearer {self.token}",

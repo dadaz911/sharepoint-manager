@@ -20,12 +20,12 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import requests
 
 # Configuración
-CONFIG = {
+CONFIG: Dict[str, Any] = {
     "base_dir": "/home/daniel/Desktop/Cargue a Onedrive",
     "token_file": "/home/daniel/Desktop/Cargue a Onedrive/.token",
     "progress_file": "/home/daniel/Desktop/Cargue a Onedrive/.upload_progress.json",
@@ -60,7 +60,7 @@ class OneDriveManager:
             exp = datetime.fromtimestamp(int(data['exp']))
             remaining = (exp - datetime.now()).total_seconds() / 60
             return token, exp, max(0, remaining)
-        except:
+        except Exception:
             return token, None, 0
 
     def get_progress(self) -> Tuple[int, int, float]:
@@ -75,7 +75,7 @@ class OneDriveManager:
             errors = len(data.get("errors", []))
             pct = (uploaded / CONFIG["total_files"]) * 100
             return uploaded, errors, pct
-        except:
+        except Exception:
             return 0, 0, 0
 
     def check_chrome_debugging(self) -> bool:
@@ -83,7 +83,7 @@ class OneDriveManager:
         try:
             r = requests.get(f"http://localhost:{CONFIG['cdp_port']}/json/version", timeout=2)
             return r.status_code == 200
-        except:
+        except Exception:
             return False
 
     def start_chrome_with_debugging(self) -> bool:
@@ -128,7 +128,7 @@ class OneDriveManager:
                 if CONFIG["onedrive_url"].split("//")[1].split("/")[0] in tab.get("url", ""):
                     return tab
             return None
-        except:
+        except Exception:
             return None
 
     def refresh_token(self) -> bool:
@@ -157,7 +157,8 @@ class OneDriveManager:
             js_code = """
             (function() {
                 const keys = Object.keys(localStorage);
-                const spKey = keys.find(k => k.includes('sharepoint_selfissued') && k.includes('shdgov-my.sharepoint.com'));
+                const spKey = keys.find(k => k.includes('sharepoint_selfissued')
+                    && k.includes('shdgov-my.sharepoint.com'));
                 if (spKey) {
                     const data = JSON.parse(localStorage.getItem(spKey));
                     return data.value;
@@ -204,7 +205,7 @@ class OneDriveManager:
                     self.refresh_token()
                 elif remaining < CONFIG["refresh_threshold"]:
                     print(
-                        f"\n[{datetime.now().strftime('%H:%M:%S')}] Token por expirar ({remaining:.0f} min) - Refrescando..."
+                        f"\n[{datetime.now().strftime('%H:%M:%S')}] Token por expirar ({remaining:.0f} min) - Refrescando..."  # noqa: E501
                     )
                     self.refresh_token()
 
