@@ -45,9 +45,35 @@ SPM_BASE_URL="https://<host>.sharepoint.com/sites/<sitio>/_api/web"
 SPM_DEST_FOLDER="/sites/<sitio>/Documentos compartidos/.../carpeta"   # server-relative
 SPM_SOURCE_DIR="/ruta/local/a/subir"
 SPM_TOKEN_FILE="/home/daniel/.cache/spm/.token"   # se jala del Pi: rsync raspberrypi3:~/.cache/spm/.token
-SPM_THREADS=5                                      # óptimo medido en el tenant SHD (6 throttlea)
+SPM_THREADS=4                                      # ver §4.1: el techo es del tenant, no del cliente
 ```
 `run-upload.sh` lo corre detached + jala el token del Pi en loop. Resumible: re-lanzar continúa.
+
+### 4.1 Cuántos hilos: el techo lo pone el tenant, no la concurrencia
+
+Medido el 2026-08-05 en el tenant SHD, cargue de 138.948 PDFs (~24,6 GB, promedio 177 KB):
+
+| Hilos | Tasa | ETA del lote |
+|---|---|---|
+| 4 | **0,9 – 1,0 arch/s** | ~40 h |
+| 5 | 0,8 arch/s | ~47 h |
+| 8 | 0,8 – 0,9 arch/s | ~43 h |
+
+**Duplicar de 4 a 8 hilos no cambió nada.** Eso descarta las dos hipótesis habituales: no es
+throttling por concurrencia (8 habría sido claramente peor) ni latencia por petición (ocho en
+paralelo habrían dado el doble que cuatro). Un techo plano frente a la concurrencia apunta a un
+**límite del lado del tenant por unidad de tiempo**: ~1 escritura por segundo en la biblioteca,
+sin importar por cuántos canales se pida. Contra eso no hay ajuste de cliente que sirva.
+
+Consecuencias prácticas:
+
+- **No subas hilos esperando ir más rápido.** Perdés tiempo midiendo y podés empezar a recibir 429.
+- **El ancho de banda no es el problema.** 24,6 GB en 40 h son 166 KB/s: irrisorio. El costo es
+  por *archivo*, no por byte — con archivos pequeños el overhead del protocolo domina.
+- **Si hace falta acortar, reducí el número de archivos, no aumentes hilos.** Consolidar varios
+  soportes en un PDF por sujeto tendría un efecto de orden de magnitud; ajustar concurrencia, no.
+- **Planificá para días, no horas**, y confiá en el resume: el proceso sobrevive a cortes de red,
+  vencimientos de token y reinicios de la sesión.
 
 ## 5. Consolidar carpetas (si vienen partidas por familia documental)
 
@@ -119,3 +145,95 @@ resultados **falsos** si se usa el método ingenuo. Reglas:
 ssh raspberrypi3 'systemctl --user disable --now sharepoint-refresher.service'   # Pi
 systemctl --user disable --now sharepoint-oauth-health.timer                      # gold
 ```
+
+## 8. Lecciones aprendidas en operación
+
+Cada una salió de un incidente real, con su fecha. Están acá porque volverían a morder.
+
+### 8.1 `pkill -f` se mata a sí mismo
+
+`ssh host 'pkill -f subir_masivo.py'` **no detiene el proceso**: la cadena del comando remoto
+contiene el patrón, así que `pkill` encuentra primero el bash que lo ejecuta y se suicida. El
+síntoma es desconcertante — el comando devuelve *sin salida ninguna* y el proceso sigue vivo.
+
+```bash
+# MAL — se autodestruye, el objetivo sobrevive
+ssh carbon 'pkill -f subir_masivo.py'
+
+# BIEN — el corchete impide que el patrón se encuentre a sí mismo
+ssh carbon 'P=$(pgrep -f "[s]ubir_masivo" | head -1); [ -n "$P" ] && kill -TERM $P'
+```
+
+Vale para `pgrep`, `pkill` y cualquier `grep` sobre la tabla de procesos ejecutado por ssh.
+
+### 8.2 Planificar y ejecutar tienen que ser dos comandos, no dos ramas
+
+Todo script que borre o mueva lleva `--ejecutar`. Sin la bandera hace una **pasada en seco**:
+cuenta, resuelve rutas, detecta colisiones y no toca nada.
+
+El 2026-08-05 esa pasada evitó un desastre: al re-armar un cargue de 138.948 archivos detectó
+**32.446 orígenes irresolubles** *antes* de borrar el staging anterior. Ejecutar directo habría
+borrado 104.735 archivos buenos para reconstruir solo 106.502, sin material y sin diagnóstico.
+Costo de la pasada en seco: dos minutos.
+
+### 8.3 La idempotencia convierte un fallo de infraestructura en un no-evento
+
+El borrado de un cargue interrumpido se cortó tres veces (dos caídas de API, un `timeout` que
+mató el cliente ssh). El resultado fue correcto igual, y **verificable**, porque relanzar un
+borrado idempotente no es un riesgo: es una comprobación. La segunda pasada reportó
+`borrados=0 ya_ausentes=236 fallos=0`, que es exactamente la firma de una operación ya hecha.
+
+Reglas que lo hacen posible:
+- Un `404` al borrar es **"ya ausente"**, no un fallo.
+- Copiar salta si el destino existe con el mismo tamaño.
+- El estado vive en un archivo de progreso, no en la memoria del proceso.
+
+Un script con "ya iba por el N, sigo desde ahí" habría dejado el estado en duda tras el corte.
+
+### 8.4 Dos contabilidades del mismo hecho: usá la que erra hacia lo recuperable
+
+El motor de cargue lleva un contador incremental **y** una lista de rutas. Al interrumpirse
+reportó `ok=220` pero la lista tenía **236** entradas — los que estaban en vuelo al llegar la
+señal. En una lectura es una curiosidad; en un **borrado** es la diferencia entre limpiar bien y
+dejar 16 duplicados invisibles.
+
+Criterio: en una operación destructiva, cuando dos registros del mismo hecho discrepan, usá el
+que erra hacia el lado recuperable. Acá, la lista más larga: borrar de más contra un archivo
+inexistente no cuesta nada; borrar de menos, sí.
+
+### 8.5 Verificá el objetivo con dos filtros independientes
+
+Antes de borrar los 236, se comprobó (a) que estuvieran en el archivo de progreso y (b) que su
+nombre siguiera la nomenclatura vieja que se iba a reemplazar. **236/236 en ambos.** Si el
+archivo de progreso hubiera arrastrado algo de otra corrida, el patrón del nombre lo habría
+delatado. Cuando la operación es irreversible, que la lista de objetivos pase dos filtros que no
+dependan uno del otro cuesta poco y ataja mucho.
+
+### 8.6 `ItemCount` antes de tocar: ¿hay contenido ajeno?
+
+En un sitio compartido, siempre `?$select=ItemCount` sobre la carpeta destino **antes** de
+borrar. En el caso del 2026-08-05 dio **38**, exactamente las 38 carpetas que había creado
+nuestro propio cargue: prueba de que no había contenido de otro proceso en riesgo. Si hubiera
+dado más, el borrado se detenía.
+
+### 8.7 No borres carpetas: dejalas vacías
+
+El recargue las reutiliza, y `delete` sobre una carpeta no vacía devuelve un 500 con un mensaje
+engañoso (§6). Borrá archivos por su ruta exacta, uno por uno, nunca con comodines.
+
+### 8.8 Un directorio de trabajo no debe contener sus propios insumos
+
+Los manifiestos viven en `~/cargue-sharepoint/manifiestos/`, **hermana** del directorio de
+staging `~/cargue-sharepoint/meta_marzo_2026/`, no dentro de él. Por eso "borrar y re-armar el
+staging" es una operación segura. Si los manifiestos hubieran estado adentro, esa misma orden
+habría destruido el inventario que costó horas levantar.
+
+Corolario: archivá los manifiestos con permisos `444` y una copia fechada. Son el único registro
+de qué archivo salió de dónde.
+
+### 8.9 Indexá por nombre en vez de adivinar rutas
+
+Al traer evidencia de varios hosts a un staging local, la disposición del destino **no** replica
+la del origen. Reconstruir la ruta esperada falla en silencio y devuelve cero. Recorré el
+staging una vez, armá un índice `basename → ruta real`, y resolvé por ahí. Barato, y funciona
+sea cual sea la estructura.
