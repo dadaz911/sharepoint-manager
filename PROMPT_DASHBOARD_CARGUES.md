@@ -130,22 +130,63 @@ comando de ssh y el resultado es siempre "vivo". Está explicado en `MANUAL.md` 
 
 ---
 
-### 3. Qué construir
+### 3. Qué construir — **extender `dashboard.py`, NO crear uno nuevo**
 
-Una aplicación web con backend en Python y frontend servido por el mismo proceso.
+**Esto es una ampliación, no una aplicación nueva.** `dashboard.py` ya existe en este repo: son
+~59 KB en **Flask + Flask-SocketIO** (`async_mode='threading'`), con actualización en tiempo real
+por websocket. Ya expone:
+
+```
+/  ·  /api/status  ·  /api/logs  ·  /api/errors  ·  /api/history
+/api/start  ·  /api/stop  ·  /api/retry-errors  ·  /api/token/refresh  ·  /api/config
+/api/explorer/{sites,browse,search,details,download,folder-contents,...}
+```
+
+**Leelo antes de escribir una línea.** Tu trabajo es que ese dashboard sirva para el cargue
+actual y agregarle trazabilidad, reutilizando su estructura, su estilo de plantillas y sus
+convenciones de API. No dupliques lo que ya hace.
+
+**3.1. Defecto conocido que hay que arreglar primero.** El dashboard detecta el proceso con
+`pgrep -f 'subir_paralelo.py'` (líneas ~781, ~888, ~1046), pero **el motor actual es
+`subir_masivo.py`**. Por eso hoy no ve el cargue en curso. Corregilo de forma que soporte ambos
+nombres, no que reemplace uno por otro: puede haber cargues viejos corriendo.
+
+Al hacerlo, aplicá `MANUAL.md` §8.1: el patrón necesita corchete (`[s]ubir_masivo`) o encuentra
+su propia línea de comando. Con `subprocess.run(['pgrep', '-f', ...])` el riesgo es menor que por
+ssh, pero verificá el comportamiento real en vez de asumirlo.
+
+**3.2. Lo que hay que agregar** (el resto de §3 detalla cada vista):
+
+| Vista | Estado |
+|---|---|
+| Panel de estado | **ya existe** — adaptarlo al motor y las métricas nuevas |
+| Gráfico de avance | **ya existe** `/api/history` — verificar que sirva para 40 h de cargue |
+| Buscador de trazabilidad | **nuevo** — es el aporte principal |
+| Resumen por fuente | **nuevo** |
 
 **Restricciones firmes:**
 
-- **Python 3 de la biblioteca estándar más lo que ya use el repo.** Mirá primero
-  `dashboard.py`, que ya existe: seguí su stack y su estilo. No introduzcas un framework nuevo
-  sin una razón que puedas escribir en una línea.
-- **Solo lectura.** El dashboard jamás modifica un archivo de cargue, un manifiesto ni nada en
-  SharePoint. Si alguien pide un botón de "reintentar", no lo hagas: se responde con la
-  instrucción de terminal.
+- **Seguí el stack existente: Flask + Flask-SocketIO.** No introduzcas otro framework.
+- **Las vistas nuevas son de solo lectura.** No agregues controles de escritura nuevos. Los
+  botones de start/stop/retry que ya existen se conservan — son parte del diseño del repo — pero
+  la trazabilidad y el resumen por fuente solo consultan.
+- **Nunca escribas sobre los manifiestos ni sobre los archivos de progreso del cargue.** El
+  directorio `manifiestos/archivo-20260805/` está en modo `444`: es el registro de trazabilidad
+  y debe quedar intacto.
 - **Sin credenciales en el código.** El token se lee de su archivo; nada de secretos embebidos.
 - **Tolerante a que los datos no estén.** Si el log no existe, si el JSON está a medio escribir,
   si carbon no responde: la página muestra el estado degradado y sigue funcionando. Nunca una
   traza de error al usuario.
+
+**3.3. Dashboards hermanos, para coherencia.** Hay otros dos en el ecosistema, con el mismo
+propósito sobre otras fuentes:
+
+- `~/claudecode/rnmc/dashboard/server.py` — expone la evidencia de RNMC, incluido
+  `detalle_evidencia_pdf_path` mediante `LEFT JOIN LATERAL`
+- `~/claudecode/siproj-dashboard/` — repo propio
+
+Mirá cómo resuelven navegación y presentación **antes** de inventar tu propio patrón. Si ya
+existe una convención razonable, seguila; si te apartás, escribí por qué en el commit.
 
 **Vistas requeridas, en orden de importancia:**
 
@@ -193,8 +234,13 @@ marcalo como obsoleto con su antigüedad.
 
 No declares el trabajo hecho sin comprobar cada punto y **mostrar la salida**:
 
+0. **Lo que ya funcionaba sigue funcionando.** Antes de tocar nada, levantá `dashboard.py` tal
+   como está y anotá qué muestra. Al terminar, comprobá que ninguna de sus rutas existentes se
+   rompió — en particular el explorador de SharePoint, que es la parte más grande del archivo.
 1. Con el cargue **corriendo**, la portada muestra el progreso real. Contrastalo contra
-   `ssh carbon 'tail -3 ~/cargue-marzo2026.log'`: tienen que coincidir.
+   `ssh carbon 'tail -3 ~/cargue-marzo2026.log'`: tienen que coincidir. **Antes de tu arreglo
+   esto falla**, porque el dashboard busca `subir_paralelo.py` y el motor es `subir_masivo.py`:
+   comprobá que falla primero, así sabés que tu corrección hizo algo.
 2. Con el cargue **detenido**, la portada dice "muerto" y no se cuelga.
 3. Sin el archivo de log, la página carga igual y lo reporta como faltante.
 4. El buscador encuentra un documento que **sí** está subido y otro que **no**, y los distingue
@@ -207,10 +253,14 @@ No declares el trabajo hecho sin comprobar cada punto y **mostrar la salida**:
 
 ### 6. Cómo entregarlo
 
-- Código en este repo, siguiendo la convención de nombres existente.
-- Una sección nueva en `MANUAL.md` explicando cómo levantarlo y qué muestra.
-- Una unidad systemd de usuario para que corra permanentemente, siguiendo el modelo de
-  `sharepoint-oauth-health.service` que ya existe en el repo.
+- **Modificaciones sobre `dashboard.py`**, no un archivo nuevo, salvo que separar un módulo de
+  trazabilidad tenga una razón que puedas escribir en una línea. Si lo separás, que se importe
+  desde `dashboard.py` y comparta su app Flask — un segundo proceso escuchando en otro puerto es
+  exactamente lo que no queremos.
+- Las plantillas nuevas van donde están las actuales, con su mismo estilo.
+- Una sección nueva en `MANUAL.md` explicando qué se agregó y cómo se usa.
+- Si el dashboard todavía no tiene unidad systemd, agregala siguiendo el modelo de
+  `sharepoint-oauth-health.service`, que ya existe en el repo.
 - Commits en español, con mensaje que explique **por qué**, no solo qué. Mirá `git log` para el
   tono.
 - **Nunca `git add -A`**: el repo tiene archivos sin trackear con datos personales. Agregá rutas
