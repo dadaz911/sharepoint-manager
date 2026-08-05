@@ -68,6 +68,31 @@ replica la consolidación en el origen local.
 | delete de carpeta da 500 "suprimir todos los elementos" | carpeta no vacía | vaciar (reciclar archivos) y luego la carpeta |
 | `GET .../GetFolderByServerRelativeUrl(...)?$select=Name` da **200 en una carpeta borrada** | `$select` lee de un metadato cacheado, no resuelve el objeto | usar **GET limpio** sin `$select` → `404 = borrada`, `200 = existe` (ver §7) |
 | `SPQueryThrottledException` (HTTP 500) al listar `/Folders` | la carpeta tiene **>5000 hijos** (list-view threshold) | no enumerar; usar `?$select=ItemCount` + aritmética, o muestrear nombres reales (ver §7) |
+| `AADSTS50173: The provided grant has expired due to it being revoked` en el journal del refrescador | **cambio o reseteo de contraseña** de la cuenta SHD: revoca el refresh token de inmediato, sin esperar los 90 días | `token_refresher.py login` en la Pi (§3). No hay forma de evitarlo: cada cambio de contraseña obliga a un re-login |
+| `oauth-health` corre y sale 0 pero el token está muerto | comportamiento **normal** entre alertas: hay cooldown de 6 h | `journalctl --user -u sharepoint-oauth-health -n 20` muestra el estado real en cada corrida (ver §6.1) |
+
+### 6.1 Observabilidad del vigilante
+
+`oauth-health.sh` escribe su veredicto al journal **en cada corrida**: `OK: token válido N min`,
+`FALLO n: …`, `Fallo aún no sostenido (n/3)`, `Ya se alertó hace N min; en cooldown` o
+`ALERTA: …`. Para ver qué está pasando:
+
+```bash
+journalctl --user -u sharepoint-oauth-health -n 20 --no-pager
+```
+
+**Por qué existe esta sección.** Hasta 2026-08-04 el script no imprimía nada: solo llamaba a
+`notify-send` y salía 0. Consecuencia real: el refresh token murió el **2026-06-25** por un
+cambio de contraseña y **nadie lo notó durante 40 días**. En `journalctl` se veían 110
+ejecuciones "SUCCESS" idénticas, y el único rastro del fallo vivía en un contador dentro de
+`$XDG_RUNTIME_DIR` — que además se borra al reiniciar, así que el conteo tampoco era fiable
+como historia.
+
+La lección generaliza más allá de este script: **una alerta cuyo único canal es una notificación
+de escritorio no es un mecanismo de vigilancia**, es una cortesía. El toast dura segundos, el
+cooldown de 6 h lo hace raro, y si la sesión gráfica no está activa se pierde del todo. El
+registro persistente —journal, archivo, métrica— es lo que permite responder "¿desde cuándo?",
+que es la primera pregunta cuando algo se rompió hace rato.
 
 ## 7. Verificar estado de carpetas en SharePoint (gotchas de la API)
 

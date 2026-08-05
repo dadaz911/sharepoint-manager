@@ -27,19 +27,35 @@ except Exception:
 ')
 
 if [ "${mins:-X}" -gt 0 ] 2>/dev/null; then
+    echo "OK: token válido ${mins} min."
     rm -f "$FAILC" "$ALERTED"     # OAuth sano: limpiar estado
     exit 0
 fi
 
 # Fallo (token vencido o Pi inalcanzable): contar, esperar a que sea sostenido.
 c=$(( $(cat "$FAILC" 2>/dev/null || echo 0) + 1 )); echo "$c" > "$FAILC"
-[ "$c" -lt "$SETTLE" ] && exit 0
+
+# El journal es el registro PERSISTENTE; la notificación de escritorio es efímera y se pierde.
+# Sin estas líneas, 110 fallos consecutivos se veían en journalctl como 110 ejecuciones
+# "SUCCESS" idénticas: el refresh token estuvo muerto 40 días (2026-06-25 → 2026-08-04) sin que
+# nadie lo notara. El único rastro vivía en $XDG_RUNTIME_DIR, que además se borra al reiniciar.
+echo "FALLO ${c}: token vencido hace $(( -mins )) min, o Pi inalcanzable." >&2
+
+if [ "$c" -lt "$SETTLE" ]; then
+    echo "Fallo aún no sostenido (${c}/${SETTLE}); sin alertar todavía." >&2
+    exit 0
+fi
 
 # Fallo sostenido: alertar una sola vez por cooldown.
 if [ -f "$ALERTED" ]; then
     age=$(( $(date +%s) - $(stat -c %Y "$ALERTED" 2>/dev/null || echo 0) ))
-    [ "$age" -lt "$COOLDOWN" ] && exit 0
+    if [ "$age" -lt "$COOLDOWN" ]; then
+        echo "Ya se alertó hace $(( age / 60 )) min; en cooldown de $(( COOLDOWN / 60 )) min." >&2
+        exit 0
+    fi
 fi
-notif "El token de SharePoint dejó de refrescarse. Re-login (device-code): ssh ${PI_HOST} 'python3 ~/sharepoint-token/token_refresher.py login'"
+msg="El token de SharePoint dejó de refrescarse. Re-login (device-code): ssh ${PI_HOST} 'python3 ~/sharepoint-token/token_refresher.py login'"
+echo "ALERTA: ${msg}" >&2
+notif "$msg"
 touch "$ALERTED"
 exit 0
