@@ -1,0 +1,13 @@
+[Unit]
+Description=Jala el token de SharePoint desde la Pi cada 10 min
+
+[Timer]
+# El productor refresca cada 50 min y el token vive ~65-80. Jalar cada 10 deja a este host
+# como mucho 10 min por detrás, y sobrevive a que el consumidor esté apagado un rato.
+OnBootSec=2min
+OnUnitActiveSec=10min
+Persistent=true
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
