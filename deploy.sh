@@ -21,11 +21,30 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UNIT_DIR="$HOME/.config/systemd/user"
 HOST="${1:-$(hostname -s)}"
+case "$HOST" in raspberrypi|raspberrypi3|pi) HOST="pi" ;; esac
 CFG="$REPO_DIR/$HOST/config.env"
 
 [ -f "$CFG" ] || { echo "✗ No hay config para '$HOST'. Esperaba $CFG"; exit 1; }
 mkdir -p "$UNIT_DIR" "$HOME/bin" "$HOME/.config/sharepoint-manager" "$HOME/.cache/spm"
 chmod 700 "$HOME/.config/sharepoint-manager" "$HOME/.cache/spm"
+
+if [ "$HOST" = "pi" ]; then
+  # La Pi es el PRODUCTOR. No jala token: lo emite. Hasta 2026-08-18 se desplegaba copiando
+  # archivos a mano, así que no había forma de saber si lo que corría era lo versionado.
+  echo "→ [pi] Instalando el refresher (productor)..."
+  mkdir -p "$HOME/sharepoint-token"
+  install -m 644 "$REPO_DIR/token_refresher.py" "$HOME/sharepoint-token/token_refresher.py"
+  install -m 600 "$REPO_DIR/pi/config.env"      "$HOME/sharepoint-token/config.env"
+  install -m 644 "$REPO_DIR/pi/sharepoint-refresher.service" "$UNIT_DIR/"
+  systemctl --user daemon-reload
+  systemctl --user enable sharepoint-refresher.service >/dev/null 2>&1 || true
+  systemctl --user restart sharepoint-refresher.service
+  sleep 3
+  echo ""
+  echo "✅ [pi] productor desplegado."
+  python3 "$HOME/sharepoint-token/token_refresher.py" estado || true
+  exit 0
+fi
 
 echo "→ [$HOST] Retirando el stack de navegador obsoleto (cutover a OAuth)..."
 # sharepoint-wayland.service estaba en esta lista desde el cutover, pero deploy.sh nunca se
