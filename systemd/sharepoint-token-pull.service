@@ -1,0 +1,12 @@
+[Unit]
+Description=SharePoint — jala el access token del productor y afirma su frescura
+Documentation=file:%h/claudecode/sharepoint-manager/MANUAL.md
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/sharepoint-manager/pull.env
+ExecStart=%h/bin/pull-token.sh
+# El script sale 1 (token inservible) o 2 (productor inalcanzable y token muerto). systemd
+# marca la unidad como failed, así que `systemctl --user --failed` y OnFailure= sirven de verdad.
+# Contraejemplo a no repetir: bin/oauth-health.sh sale 0 en TODOS sus caminos, incluido el de
+# fallo sostenido — por eso 110 fallos seguidos se veían como 110 ejecuciones exitosas.

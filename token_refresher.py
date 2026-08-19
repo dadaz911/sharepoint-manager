@@ -14,6 +14,10 @@ Comandos:
   run          daemon: refresh cada REFRESH_EVERY segundos
   test-write   sube y borra un archivo de prueba (valida que el token sirve para ESCRIBIR)
   status       muestra la validez del access token actual
+  estado       imprime el estado persistido y SALE 1 si el refresco no está sano.
+               Es el comando que deben consumir un vigilante y el motor de cargue: responde
+               "¿desde cuándo está roto y por qué?" sin depender del journal, que en la Pi
+               retiene ~3 días. Distingue TRANSITORIO (red) de HUMANO (hace falta re-login).
 
 Config por entorno (defaults para el tenant SHD):
   TENANT, CLIENT_ID, SCOPE, TOKEN_FILE, RT_FILE, PERSONAL_SITE, DEST_FOLDER, REFRESH_EVERY,
@@ -25,6 +29,7 @@ import base64
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -81,19 +86,51 @@ DEST = os.environ.get("DEST_FOLDER", "/personal/dzuniga_shd_gov_co1/Documents/Pr
 REFRESH_EVERY = int(os.environ.get("REFRESH_EVERY", "3000"))  # 50 min (token dura ~65)
 DELIVER_HOST = os.environ.get("SPM_DELIVER_HOST", "")  # ej. "gold"; vacío = no entregar
 DELIVER_PATH = os.environ.get("SPM_DELIVER_PATH", str(TOKEN_FILE))  # ruta remota (default canónica)
+# Estado en DISCO (no en tmpfs): responde "¿desde cuándo está roto y por qué?" sin depender del
+# journal. En junio un fallo duró 40 días inadvertido y su rastro vivía en $XDG_RUNTIME_DIR,
+# que se borra al reiniciar; hoy el journal de esta unidad retiene ~3 días.
+STATE_FILE = Path(
+    os.environ.get("STATE_FILE", str(Path.home() / ".local/state/sharepoint-manager/refresher-state.json"))
+)
+# Reintento tras un fallo transitorio. El ritmo normal (~50 min) con tokens de ~65 deja 15 min
+# de holgura: UN solo ciclo perdido garantiza un hueco sin token. Ante un transitorio hay que
+# volver ANTES, no después — el backoff solo aplica a 429 y a los fallos que piden un humano.
+REINTENTO_MIN = int(os.environ.get("REINTENTO_MIN", "60"))  # segundos
+REINTENTO_MAX = int(os.environ.get("REINTENTO_MAX", "600"))
 
 
 def _log(m):
-    print(m, flush=True)
+    # Sello de tiempo propio: el journal de la Pi solo retiene ~3 días (comparte 100 MB con
+    # vecinos ruidosos), así que estas líneas terminan copiadas o redirigidas a archivo, donde
+    # la marca de systemd ya no está. Un log sin hora no sirve para reconstruir un incidente.
+    print(f"[{datetime.datetime.now().isoformat(timespec='seconds')}] {m}", flush=True)
 
 
 def _write_secure(path: Path, data: str, mode=0o600):
+    """Escritura ATÓMICA: temporal + fsync + os.replace, con respaldo del anterior.
+
+    Antes era os.open(O_TRUNC) + os.write directo. Un corte de energía dentro de esa ventana
+    deja el archivo truncado; si el archivo es el refresh token —la única credencial de larga
+    vida— eso exige re-login interactivo. La Pi corre sobre una SD, en un sitio con cortes
+    documentados (12-ago: silver y carbon reiniciaron con 7 min de diferencia). El riesgo era
+    pequeño en probabilidad y máximo en consecuencia.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    if path.exists():
+        try:
+            bak = path.with_suffix(path.suffix + ".bak")
+            os.replace(str(path), str(bak))
+            os.chmod(str(bak), mode)
+        except OSError:
+            pass  # el respaldo es un extra; nunca debe impedir escribir el token nuevo
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
     try:
         os.write(fd, data.encode())
+        os.fsync(fd)
     finally:
         os.close(fd)
+    os.replace(str(tmp), str(path))
 
 
 def _exp_minutes(tok: str):
@@ -106,12 +143,34 @@ def _exp_minutes(tok: str):
         return None
 
 
+def _estado(**campos):
+    """Vuelca el estado a disco, fusionando con lo que ya había.
+
+    Es la fuente de la que debe leer cualquier vigilante, y la precondición que un cargue
+    debería exigir antes de arrancar. Nunca puede tumbar el refresco: si falla, se registra
+    y se sigue — el token importa más que su bitácora.
+    """
+    try:
+        prev = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
+    except Exception:
+        prev = {}
+    prev.update(campos)
+    prev["ts"] = datetime.datetime.now().isoformat(timespec="seconds")
+    try:
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = STATE_FILE.with_name(STATE_FILE.name + ".tmp")
+        tmp.write_text(json.dumps(prev, indent=2, ensure_ascii=False))
+        os.replace(str(tmp), str(STATE_FILE))
+    except Exception as e:
+        _log(f"  (aviso) no pude escribir el estado en {STATE_FILE}: {e}")
+
+
 def _deliver():
     if not DELIVER_HOST:
         return
     # rsync -s (--protect-args): la ruta remota con espacios ("Cargue a Onedrive") NO la parte
     # el shell remoto. Args como lista (sin shell=True) => imposible inyectar comandos.
-    rc = subprocess.run(
+    p = subprocess.run(
         [
             "rsync",
             "-s",
@@ -122,8 +181,13 @@ def _deliver():
         ],
         capture_output=True,
         text=True,
-    ).returncode
-    _log(f"  entrega -> {DELIVER_HOST}: {'ok' if rc == 0 else 'rc=' + str(rc)}")
+    )
+    if p.returncode == 0:
+        _log(f"  entrega -> {DELIVER_HOST}: ok")
+    else:
+        # Antes solo se registraba "rc=23", que no dice si fue DNS, clave, permisos o disco lleno.
+        motivo = (p.stderr or "").strip().splitlines()
+        _log(f"  entrega -> {DELIVER_HOST}: FALLÓ rc={p.returncode} — {motivo[-1] if motivo else 'sin stderr'}")
 
 
 def _save_access(tok: str):
@@ -174,42 +238,185 @@ def login():
     return 3
 
 
+# Códigos de retorno de refresh(). Son también el exit code del CLI (`refresh`), así que
+# systemd puede distinguir "hace falta un humano" (1) de "se cayó la red" (2).
+OK, HUMANO, TRANSITORIO = 0, 1, 2
+
+_AADSTS = re.compile(r"AADSTS\d+")
+
+
+def clase_nombre(c):
+    return {OK: "OK", HUMANO: "HUMANO", TRANSITORIO: "TRANSITORIO"}.get(c, "DESCONOCIDO")
+
+
+def _clasificar(status, cuerpo):
+    """Tres clases porque solo hay tres acciones posibles: seguir, reintentar pronto, o
+    llamar a un humano. El código AADSTS exacto NO ramifica el control de flujo: se guarda
+    en el estado y se imprime. Ramificar por cada código sería taxonomía sin consecuencia.
+    """
+    err = (cuerpo.get("error") or "").strip()
+    if status == 429 or status >= 500:
+        return TRANSITORIO, f"HTTP {status} del servidor de autenticación — se reintenta pronto"
+    if err in ("invalid_grant", "invalid_client", "unauthorized_client", "interaction_required"):
+        return HUMANO, f"{err} — la credencial dejó de servir; hace falta re-login con MFA"
+    if status >= 400:
+        return HUMANO, f"HTTP {status} {err or 'sin código de error'}"
+    return TRANSITORIO, f"HTTP {status} inesperado"
+
+
+def _consecutivos():
+    try:
+        return int(json.loads(STATE_FILE.read_text()).get("consecutivos", 0))
+    except Exception:
+        return 0
+
+
 def refresh():
     if not RT_FILE.exists():
-        _log("  ❌ no hay refresh token; corre: token_refresher.py login")
-        return 1
-    rt = RT_FILE.read_text().strip()
-    r = requests.post(
-        f"{AUTH}/token",
-        data={"grant_type": "refresh_token", "client_id": CLIENT, "refresh_token": rt, "scope": SCOPE},
-        timeout=20,
-    )
-    if r.status_code != 200:
-        j = r.json()
-        _log(
-            "  ❌ refresh falló: "
-            + str(r.status_code)
-            + " "
-            + j.get("error", "")
-            + " "
-            + (j.get("error_description", "") or "")[:200]
+        _log("❌ no hay refresh token en disco; corre: token_refresher.py login")
+        _estado(
+            veredicto="humano", clase="HUMANO", motivo="no hay refresh token en disco", consecutivos=_consecutivos() + 1
         )
-        return 1
-    j = r.json()
-    if j.get("refresh_token"):  # rotación: persistir el refresh token nuevo
-        _write_secure(RT_FILE, j["refresh_token"])
-    _save_access(j["access_token"])
-    return 0
+        return HUMANO
+
+    rt = RT_FILE.read_text().strip()
+    try:
+        r = requests.post(
+            f"{AUTH}/token",
+            data={"grant_type": "refresh_token", "client_id": CLIENT, "refresh_token": rt, "scope": SCOPE},
+            timeout=20,
+        )
+    except requests.RequestException as e:
+        # ESTA es la clase que antes se perdía por completo. La excepción subía hasta run(),
+        # que la registraba como "refresh exc: <str>" sin decir si fue DNS, TLS o timeout —
+        # es decir, sin poder distinguir "se cayó el internet" de un problema real. Ahora
+        # queda nombrada y clasificada aquí, que es donde se sabe qué se estaba intentando.
+        n = _consecutivos() + 1
+        _log(f"❌ TRANSITORIO (red): sin respuesta del servidor — {type(e).__name__}: {str(e)[:160]}")
+        _log(f"   fallos consecutivos: {n}. Se reintenta en {REINTENTO_MIN}s, no en {REFRESH_EVERY}s.")
+        _estado(veredicto="fallo", clase="TRANSITORIO", motivo=f"red: {type(e).__name__}", http=None, consecutivos=n)
+        return TRANSITORIO
+
+    if r.status_code != 200:
+        # r.json() sin guarda era un bug silencioso: un 502/503 devuelto por un proxy o una
+        # ventana de mantenimiento viene en HTML, r.json() lanzaba ValueError, y el fallo
+        # terminaba registrado como "Expecting value: line 1 column 1" SIN el código HTTP.
+        # O sea: la clase de fallo más recuperable era, por construcción, la más ilegible.
+        try:
+            cuerpo = r.json()
+        except ValueError:
+            cuerpo = {}
+        clase, motivo = _clasificar(r.status_code, cuerpo)
+        desc = (cuerpo.get("error_description") or r.text or "")[:400]
+        aad = _AADSTS.search(desc)
+        # correlation_id es lo único que permite abrir un caso con Microsoft o cruzar con los
+        # sign-in logs del tenant. Se descartaba.
+        corr = cuerpo.get("correlation_id")
+        n = _consecutivos() + 1
+
+        _log(f"❌ {clase_nombre(clase)}: {motivo}")
+        _log(
+            f"   HTTP {r.status_code} · {cuerpo.get('error', 's/error')}"
+            f"{' · ' + aad.group(0) if aad else ''}"
+            f"{' · correlation_id=' + str(corr) if corr else ''}"
+        )
+        _log(f"   fallos consecutivos: {n}")
+        if clase == HUMANO:
+            _log("   REMEDIO: ssh raspberrypi3 'python3 ~/sharepoint-token/token_refresher.py login'")
+
+        _estado(
+            veredicto="fallo",
+            clase=clase_nombre(clase),
+            motivo=motivo,
+            http=r.status_code,
+            error=cuerpo.get("error"),
+            suberror=cuerpo.get("suberror"),
+            error_codes=cuerpo.get("error_codes"),
+            aadsts=aad.group(0) if aad else None,
+            correlation_id=corr,
+            descripcion=desc[:300],
+            consecutivos=n,
+            retry_after=r.headers.get("Retry-After"),
+        )
+        return clase
+
+    cuerpo = r.json()
+    if cuerpo.get("refresh_token"):  # rotación: persistir el refresh token nuevo
+        _write_secure(RT_FILE, cuerpo["refresh_token"])
+    _save_access(cuerpo["access_token"])
+    _estado(
+        veredicto="ok",
+        clase="OK",
+        motivo=None,
+        http=200,
+        error=None,
+        aadsts=None,
+        consecutivos=0,
+        ultimo_exito=datetime.datetime.now().isoformat(timespec="seconds"),
+        exp_min=_exp_minutes(cuerpo["access_token"]),
+    )
+    return OK
+
+
+def _proxima_espera():
+    """Ritmo derivado de la vida real del token, no de una constante.
+
+    Con 50 min fijos y tokens de ~65-80, la holgura es de 15-30 min: perder UN ciclo ya
+    garantiza un hueco sin token válido — el presupuesto de error del diseño era cero.
+    Refrescando al ~55% de la vida restante quedan varios fallos de margen antes de que
+    algún consumidor se quede sin credencial.
+    """
+    try:
+        m = _exp_minutes(TOKEN_FILE.read_text().strip())
+    except Exception:
+        m = None
+    if not m or m <= 0:
+        return REINTENTO_MIN
+    return max(300, min(int(m * 60 * 0.55), REFRESH_EVERY))
+
+
+def _espera_humano(n):
+    """Sondeo cuando hace falta un humano.
+
+    Se sondea porque algunos fallos de política se curan solos, pero se sondea POCO y a
+    ritmo decreciente: cada intento es un sign-in fallido en el tenant, y este daemon usa
+    el client id público de Microsoft Office. Miles de sign-ins no interactivos fallidos con
+    ese appid desde una IP residencial son la firma de un robo de token; el remedio no puede
+    ser lo que dispare una revocación administrativa. La alerta ya salió al primer fallo.
+    """
+    return 1800 if n <= 4 else 3600
 
 
 def run():
-    _log(f"=== token_refresher daemon (refresh cada {REFRESH_EVERY}s) ===")
+    _log(f"=== token_refresher daemon — ritmo base {REFRESH_EVERY}s · estado en {STATE_FILE} ===")
+    espera_transitorio = REINTENTO_MIN
     while True:
         try:
-            refresh()
+            clase = refresh()
         except Exception as e:
-            _log("  refresh exc: " + str(e))
-        time.sleep(REFRESH_EVERY)
+            # Red de seguridad. Antes ESTE era el único manejo de error del bucle y se comía
+            # todo —incluidos los fallos de red— en una sola línea sin clasificar.
+            n = _consecutivos() + 1
+            _log(f"❌ DESCONOCIDO: excepción no prevista — {type(e).__name__}: {str(e)[:200]}")
+            _estado(veredicto="fallo", clase="DESCONOCIDO", motivo=type(e).__name__, consecutivos=n)
+            clase = TRANSITORIO
+
+        if clase == OK:
+            espera_transitorio = REINTENTO_MIN
+            dormir = _proxima_espera()
+        elif clase == TRANSITORIO:
+            ra = None
+            try:  # si el servidor pidió Retry-After, mandá el servidor
+                ra = json.loads(STATE_FILE.read_text()).get("retry_after")
+            except Exception:
+                pass
+            dormir = int(ra) if (ra and str(ra).isdigit()) else espera_transitorio
+            espera_transitorio = min(espera_transitorio * 2, REINTENTO_MAX)
+        else:
+            dormir = _espera_humano(_consecutivos())
+
+        _log(f"   próximo intento en {dormir}s")
+        time.sleep(dormir)
 
 
 def _api_headers():
@@ -252,9 +459,55 @@ def status():
     _log(f"  refresh token: {'presente' if RT_FILE.exists() else 'AUSENTE'} ({RT_FILE})")
 
 
+def estado():
+    """Imprime el estado y sale 0 solo si el refresco está SANO.
+
+    Pensado para que lo consuman un vigilante (`OnFailure=`) y el motor de cargue como
+    precondición. La regla: el exit code refleja la validez del RESULTADO, no el éxito de
+    haber leído el archivo. Un `estado` que siempre saliera 0 sería el mismo error que
+    cometía oauth-health.sh, que salía 0 incluso ante fallo sostenido y por eso systemd
+    nunca vio nada.
+    """
+    if not STATE_FILE.exists():
+        _log(f"SIN ESTADO: {STATE_FILE} no existe (¿el daemon nunca corrió?)")
+        return 1
+    try:
+        s = json.loads(STATE_FILE.read_text())
+    except Exception as e:
+        _log(f"ESTADO ILEGIBLE: {e}")
+        return 1
+
+    clase = s.get("clase", "DESCONOCIDO")
+    _log(f"clase={clase} veredicto={s.get('veredicto')} consecutivos={s.get('consecutivos', 0)}")
+    _log(f"último éxito: {s.get('ultimo_exito', 'nunca registrado')} · última evaluación: {s.get('ts')}")
+    if clase != "OK":
+        _log(f"motivo: {s.get('motivo')}")
+        for k in ("http", "error", "aadsts", "correlation_id"):
+            if s.get(k):
+                _log(f"  {k}: {s[k]}")
+        if clase == "HUMANO":
+            _log("REMEDIO: token_refresher.py login  (device-code, exige navegador y MFA)")
+        return 1
+
+    # Sano en la última evaluación no basta: hay que comprobar que el token de disco VIVE.
+    m = _exp_minutes(TOKEN_FILE.read_text().strip()) if TOKEN_FILE.exists() else None
+    if m is None or m <= 0:
+        _log(f"INCONSISTENTE: el estado dice OK pero el token de disco no sirve ({m} min).")
+        return 1
+    _log(f"access token vigente ~{m} min ({TOKEN_FILE})")
+    return 0
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
-    fn = {"login": login, "refresh": refresh, "run": run, "test-write": test_write, "status": status}.get(cmd)
+    fn = {
+        "login": login,
+        "refresh": refresh,
+        "run": run,
+        "test-write": test_write,
+        "status": status,
+        "estado": estado,
+    }.get(cmd)
     if not fn:
         _log(__doc__)
         sys.exit(1)

@@ -1,0 +1,10 @@
+[Unit]
+Description=SharePoint — vigilante: dead-man's switch sobre el productor + chequeo funcional
+Documentation=file:%h/claudecode/sharepoint-manager/MANUAL.md
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/sharepoint-manager/pull.env
+ExecStart=%h/bin/spm-watch.sh
+# Sale 1 (el token no sirve acá) o 2 (el productor no tiene éxito reciente). systemd marca la
+# unidad como failed, así que `systemctl --user --failed` dice la verdad y OnFailure= es usable.
