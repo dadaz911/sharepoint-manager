@@ -63,7 +63,7 @@ fi
 c=$(( $(cat "$FAILC" 2>/dev/null || echo 0) + 1 )); echo "$c" > "$FAILC"
 # El journal es el registro PERSISTENTE; la notificación de escritorio es efímera y se pierde.
 echo "FALLO ${c} [${clase}]: ${detalle}" >&2
-echo "$salida" | sed 's/^/  | /' >&2
+while IFS= read -r linea; do echo "  | $linea" >&2; done <<< "$salida"
 
 if [ "$c" -lt "$SETTLE" ]; then
   echo "Fallo aún no sostenido (${c}/${SETTLE}); sin avisar todavía." >&2

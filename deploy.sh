@@ -66,7 +66,9 @@ install -m 644 "$REPO_DIR/systemd/sharepoint-token-pull.service" \
 # Rutas heredadas -> symlink al canónico, para no tocar la config de otros proyectos.
 CANON="$(grep -E '^TOKEN_FILE=' "$CFG" | cut -d= -f2- | tr -d '"')"
 enlazar() {
-  [ -e "$1" ] && [ ! -L "$1" ] && cp -a "$1" "$1.bak-$(date +%Y%m%d)" 2>/dev/null || true
+  if [ -e "$1" ] && [ ! -L "$1" ]; then
+    cp -a "$1" "$1.bak-$(date +%Y%m%d)" 2>/dev/null || true
+  fi
   mkdir -p "$(dirname "$1")"; rm -f "$1"; ln -sfn "$CANON" "$1"; echo "   enlace: $1 -> $CANON"
 }
 case "$HOST" in

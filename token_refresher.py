@@ -274,8 +274,9 @@ def _consecutivos():
 def refresh():
     if not RT_FILE.exists():
         _log("❌ no hay refresh token en disco; corre: token_refresher.py login")
-        _estado(veredicto="humano", clase="HUMANO", motivo="no hay refresh token en disco",
-                consecutivos=_consecutivos() + 1)
+        _estado(
+            veredicto="humano", clase="HUMANO", motivo="no hay refresh token en disco", consecutivos=_consecutivos() + 1
+        )
         return HUMANO
 
     rt = RT_FILE.read_text().strip()
@@ -293,8 +294,7 @@ def refresh():
         n = _consecutivos() + 1
         _log(f"❌ TRANSITORIO (red): sin respuesta del servidor — {type(e).__name__}: {str(e)[:160]}")
         _log(f"   fallos consecutivos: {n}. Se reintenta en {REINTENTO_MIN}s, no en {REFRESH_EVERY}s.")
-        _estado(veredicto="fallo", clase="TRANSITORIO", motivo=f"red: {type(e).__name__}",
-                http=None, consecutivos=n)
+        _estado(veredicto="fallo", clase="TRANSITORIO", motivo=f"red: {type(e).__name__}", http=None, consecutivos=n)
         return TRANSITORIO
 
     if r.status_code != 200:
@@ -315,18 +315,27 @@ def refresh():
         n = _consecutivos() + 1
 
         _log(f"❌ {clase_nombre(clase)}: {motivo}")
-        _log(f"   HTTP {r.status_code} · {cuerpo.get('error', 's/error')}"
-             f"{' · ' + aad.group(0) if aad else ''}"
-             f"{' · correlation_id=' + str(corr) if corr else ''}")
+        _log(
+            f"   HTTP {r.status_code} · {cuerpo.get('error', 's/error')}"
+            f"{' · ' + aad.group(0) if aad else ''}"
+            f"{' · correlation_id=' + str(corr) if corr else ''}"
+        )
         _log(f"   fallos consecutivos: {n}")
         if clase == HUMANO:
             _log("   REMEDIO: ssh raspberrypi3 'python3 ~/sharepoint-token/token_refresher.py login'")
 
         _estado(
-            veredicto="fallo", clase=clase_nombre(clase), motivo=motivo,
-            http=r.status_code, error=cuerpo.get("error"), suberror=cuerpo.get("suberror"),
-            error_codes=cuerpo.get("error_codes"), aadsts=aad.group(0) if aad else None,
-            correlation_id=corr, descripcion=desc[:300], consecutivos=n,
+            veredicto="fallo",
+            clase=clase_nombre(clase),
+            motivo=motivo,
+            http=r.status_code,
+            error=cuerpo.get("error"),
+            suberror=cuerpo.get("suberror"),
+            error_codes=cuerpo.get("error_codes"),
+            aadsts=aad.group(0) if aad else None,
+            correlation_id=corr,
+            descripcion=desc[:300],
+            consecutivos=n,
             retry_after=r.headers.get("Retry-After"),
         )
         return clase
@@ -336,8 +345,14 @@ def refresh():
         _write_secure(RT_FILE, cuerpo["refresh_token"])
     _save_access(cuerpo["access_token"])
     _estado(
-        veredicto="ok", clase="OK", motivo=None, http=200, error=None, aadsts=None,
-        consecutivos=0, ultimo_exito=datetime.datetime.now().isoformat(timespec="seconds"),
+        veredicto="ok",
+        clase="OK",
+        motivo=None,
+        http=200,
+        error=None,
+        aadsts=None,
+        consecutivos=0,
+        ultimo_exito=datetime.datetime.now().isoformat(timespec="seconds"),
         exp_min=_exp_minutes(cuerpo["access_token"]),
     )
     return OK
