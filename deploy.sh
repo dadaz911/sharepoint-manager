@@ -77,6 +77,17 @@ esac
 systemctl --user daemon-reload
 systemctl --user enable --now sharepoint-token-pull.timer
 
+if [ "$HOST" = "carbon" ]; then
+  # El vigilante vive acá y no en gold: carbon está siempre encendido y es CONSUMIDOR real,
+  # así que puede comprobar funcionalmente que el token sirve. Tenerlo en la laptop costó
+  # 46,5 h de latencia el 14-ago.
+  echo "→ [carbon] Instalando el vigilante (dead-man's switch + chequeo funcional)..."
+  install -m 755 "$REPO_DIR/bin/spm-watch.sh" "$HOME/bin/spm-watch.sh"
+  install -m 644 "$REPO_DIR/systemd/spm-watch.service" "$REPO_DIR/systemd/spm-watch.timer" "$UNIT_DIR/"
+  systemctl --user daemon-reload
+  systemctl --user enable --now spm-watch.timer
+fi
+
 if [ "$HOST" = "gold" ]; then
   echo "→ [gold] Instalando el vigilante de salud OAuth..."
   chmod +x "$REPO_DIR"/bin/*.sh 2>/dev/null || true
